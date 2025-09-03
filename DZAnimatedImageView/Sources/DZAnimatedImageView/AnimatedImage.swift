@@ -13,6 +13,8 @@ public class AnimatedImage: NSObject {
     internal var imageSource: CGImageSource?
     let isLocal: Bool
     
+    private let srcDownloader: SourceDownloader = .default //.init(name: "default")
+    
     /// override ==
     /// - Parameters:
     ///   - l: left instance
@@ -72,7 +74,8 @@ extension AnimatedImage {
     ///   - completion: completion handle
     ///   - progress: progress %
     /// - Returns: cancel token for cancel
-    internal func startLoad(completion: ((Bool, AnimatedImage)->Void)?, progress: ((Float)->Void)? = nil) -> SessionDataTask.CancelToken {
+    internal func startLoad(completion: (@MainActor (Bool, AnimatedImage) -> Void)?,
+                            progress: (@MainActor (Float) async -> Void)? = nil) -> SessionDataTask.CancelToken {
         // image source already loaded
         guard self.imageSource == nil else {
             completion?(true, self)
@@ -85,29 +88,29 @@ extension AnimatedImage {
             case .success(let src):
                 self.imageSource = src
                 //SourceCache.default.add(url: self.key, source: src)
-                SourceDownloader.default.releaseTask(url: self.keyString)
-                completion?(true, self)
+                await self.srcDownloader.releaseTask(url: self.key)
+                await completion?(true, self)
                 break
             case .failure:
-                completion?(false, self)
+                await completion?(false, self)
                 break
             }
         }
         
         // progress handle
         let onProgress = { (precent: Float) -> Void in
-            progress?(precent)
+            await progress?(precent)
         }
         
         // start download task
-        let cancelToken = SourceDownloader.default.downloadImage(from: self.keyString, completion: onCompleted, progress: onProgress)
+        let cancelToken = await self.srcDownloader.downloadImage(from: self.key, completion: onCompleted, progress: onProgress)
         
         return cancelToken
     }
     
     /// cancel load
     /// - Parameter token: cancel token
-    internal func cancelLoad(token: SessionDataTask.CancelToken) {
-        SourceDownloader.default.cancelDownload(self.keyString, token: token)
+    internal func cancelLoad(token: SessionDataTask.CancelToken) async {
+        await self.srcDownloader.cancelDownload(self.key, token: token)
     }
 }

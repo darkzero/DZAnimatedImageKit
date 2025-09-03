@@ -35,8 +35,8 @@ public final class SessionDataTask: NSObject {
     private var dataTask: URLSessionDataTask?
     
     public struct TaskCallback {
-        let onCompleted: ((DownloadResult)->Void)?
-        let onProgress: ((Float)->Void)?
+        let onCompleted: ((DownloadResult) async -> Void)?
+        let onProgress: ((Float) async -> Void)?
     }
     private(set) var isRunning = false
     

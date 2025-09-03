@@ -9,12 +9,11 @@ import Foundation
 
 let _imgSrcCache = DefaultImageSourceCache()
 
-class SourceDownloader {
-    //internal static let `default` = SourceDownloader(name: "default")
+actor SourceDownloader {
+    /*nonisolated(unsafe)*/ internal static let `default` = SourceDownloader(name: "default")
     internal var sessionTasks: [String: SessionDataTask] = [:]
-    
     private let name: String
-    private init(name: String) {
+    init(name: String) {
         if name.isEmpty {
             fatalError("You should specify a name for the downloader. A downloader with empty name is not permitted.")
         }
@@ -24,8 +23,8 @@ class SourceDownloader {
 
 extension SourceDownloader {
     internal func downloadImage(from url: String,
-                              completion: @escaping ((DownloadResult)->Void),
-                              progress: ((Float)->Void)? = nil) -> SessionDataTask.CancelToken {
+                                completion: @escaping ((DownloadResult) async -> Void),
+                                progress: ((Float) async -> Void)? = nil) -> SessionDataTask.CancelToken {
         let taskCallback = SessionDataTask.TaskCallback(onCompleted: completion, onProgress: progress)
         
         if let task = self.sessionTasks[url] {
