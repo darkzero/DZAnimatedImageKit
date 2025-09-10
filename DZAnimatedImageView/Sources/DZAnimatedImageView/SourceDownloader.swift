@@ -23,8 +23,8 @@ actor SourceDownloader {
 
 extension SourceDownloader {
     internal func downloadImage(from url: String,
-                                completion: @escaping ((DownloadResult) async -> Void),
-                                progress: ((Float) async -> Void)? = nil) -> SessionDataTask.CancelToken {
+                                completion: @escaping ((DownloadResult) -> Void),
+                                progress: ((Float) -> Void)? = nil) -> SessionDataTask.CancelToken {
         let taskCallback = SessionDataTask.TaskCallback(onCompleted: completion, onProgress: progress)
         
         if let task = self.sessionTasks[url] {
@@ -39,6 +39,33 @@ extension SourceDownloader {
         return cancelToken
     }
     
+    /// downloadImageAsync
+    /// 异步版本
+    /// - Parameter url: 图片Url
+    /// - Returns: 包含进度和结果的数据流
+    internal func downloadImageAsync(from url: String) async throws -> (SessionDataTask.CancelToken, AsyncThrowingStream<Float, Error>) {
+        var cancelToken: SessionDataTask.CancelToken = -1
+        let stream = AsyncThrowingStream { continuation in
+            cancelToken = self.downloadImage(from: url) { result in
+                switch result {
+                case .success(let source):
+                    // 成功时，发送 1.0 的进度，然后将 CGImageSource 封装并结束数据流
+                    continuation.yield(1.0)
+                    let imageBox = ImageSourceBox(raw: source)
+                    continuation.finish(throwing: nil)
+                case .failure:
+                    // 失败时，抛出错误并结束数据流
+                    continuation.finish(throwing: URLError(.cannotFindHost))
+                }
+            } progress: { p in
+                // 收到进度更新时，发送进度值
+                continuation.yield(p)
+            }
+        }
+        
+        return (cancelToken, stream)
+    }
+    
     internal func cancelDownload(_ url: String, token: SessionDataTask.CancelToken) {
         if let task = self.sessionTasks[url] {
             task.cancel(token: token)
@@ -48,11 +75,11 @@ extension SourceDownloader {
         }
     }
     
+    /// Release task of url
+    /// - Parameter url: url
     internal func releaseTask(url: String) {
-        //Logger.debug()
         self.sessionTasks[url]?.sessionDataTask?.cancel()
         self.sessionTasks[url]?.sessionDataTask = nil
-        //let t = self.sessionTasks[url]
         self.sessionTasks[url] = nil
     }
 }

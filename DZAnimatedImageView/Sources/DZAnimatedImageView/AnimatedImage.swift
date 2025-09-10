@@ -7,13 +7,16 @@
 
 import ImageIO
 import Foundation
+import UIKit
 
-public class AnimatedImage: NSObject {
+final public class AnimatedImage: NSObject {
     private let key: String
+    private var cancelToken: SessionDataTask.CancelToken = -1
     internal var imageSource: CGImageSource?
     let isLocal: Bool
+    private var downloadTask: Task<ImageSourceBox?, Error>?
     
-    private let srcDownloader: SourceDownloader = .default //.init(name: "default")
+    private let srcDownloader: SourceDownloader = .default
     
     /// override ==
     /// - Parameters:
@@ -74,38 +77,36 @@ extension AnimatedImage {
     ///   - completion: completion handle
     ///   - progress: progress %
     /// - Returns: cancel token for cancel
-    internal func startLoad(completion: (@MainActor (Bool, AnimatedImage) -> Void)?,
-                            progress: (@MainActor (Float) async -> Void)? = nil) -> SessionDataTask.CancelToken {
+    internal func startLoad(onProgress: ((Float) -> Void)? = nil) async throws -> CGImageSource? {
         // image source already loaded
         guard self.imageSource == nil else {
-            completion?(true, self)
-            return -1
+            return self.imageSource
         }
-        
-        // completion handle
-        let onCompleted = { (result: DownloadResult) -> Void in
-            switch result {
-            case .success(let src):
-                self.imageSource = src
-                //SourceCache.default.add(url: self.key, source: src)
-                await self.srcDownloader.releaseTask(url: self.key)
-                await completion?(true, self)
-                break
-            case .failure:
-                await completion?(false, self)
-                break
+        // download
+        let (cancelToken, stream) = await try self.srcDownloader.downloadImageAsync(from: self.key)
+        self.cancelToken = cancelToken
+        do {
+            for try await progress in stream {
+                if progress < 1.0 {
+                    print("Progress: \(progress)")
+                    onProgress?(progress)
+                }
+                else {
+                    let source = await _imgSrcCache.findSource(from: self.key)
+                    guard let validSource = source else {
+                        throw URLError(.cannotCreateFile)
+                    }
+                    self.imageSource = validSource.raw
+                    return self.imageSource
+                }
             }
+            throw URLError(.cancelled)
         }
-        
-        // progress handle
-        let onProgress = { (precent: Float) -> Void in
-            await progress?(precent)
+        catch(let error) {
+            await SourceDownloader.default.cancelDownload(self.key, token: self.cancelToken)
+            self.cancelToken = -1
+            throw error
         }
-        
-        // start download task
-        let cancelToken = await self.srcDownloader.downloadImage(from: self.key, completion: onCompleted, progress: onProgress)
-        
-        return cancelToken
     }
     
     /// cancel load

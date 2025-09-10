@@ -8,8 +8,8 @@
 import SwiftUI
 
 // DZAnimatedImageView
-struct DZAnimatedImageView: View {
-    var body: some View {
-        
+public struct DZAnimatedImageSView: View {
+    public var body: some View {
+        Text("")
     }
 }

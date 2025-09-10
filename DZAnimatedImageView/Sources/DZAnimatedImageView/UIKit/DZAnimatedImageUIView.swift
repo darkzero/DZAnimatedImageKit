@@ -18,7 +18,6 @@ public typealias UIImageView = NSImageView
 public typealias UIImage = NSImage
 #endif
 
-
 public enum RepeatMode: Equatable {
     case once
     case finite(_ count: UInt)
@@ -43,7 +42,7 @@ public enum RepeatMode: Equatable {
     }
 }
 
-class DZAnimatedImageUIView: UIImageView {
+public class DZAnimatedImageUIView: UIImageView {
     /// Auto start playing
     public var autoPlay: Bool = true
     /// Whether the image is displaying or not
@@ -53,7 +52,7 @@ class DZAnimatedImageUIView: UIImageView {
     /// pre scaling
     public var needsPrescaling = true
     ///
-    public var placeHolder: UIImage? = UIImage(named: placeHolderName, in: Bundle(for: AnimatedImageView.self), compatibleWith: nil)
+    public var placeHolder: UIImage?
     ///
     public var willShowProgress: Bool = true
     /// Repeat Mode (default is infinite)
@@ -70,7 +69,7 @@ class DZAnimatedImageUIView: UIImageView {
     /// The run loop mode of animation timer
     /// Default is 'RunLoop.Mode.common'
     /// 'RunLoop.Mode.default' will make the animation pause during UIScrollView scrolling
-    public var runLoopMode = kFRunLoopModeCommon {
+    public var runLoopMode = RunLoop.Mode.common {
         willSet {
             guard runLoopMode == newValue else { return }
             self.stopAnimating()
@@ -81,23 +80,28 @@ class DZAnimatedImageUIView: UIImageView {
     }
     
     /// AImage
-    public var aniImage: AnimatiedImage? {
+    public var aniImage: AnimatedImage? {
         didSet {
-            if aniImage != oldValue, !(aniImage?.isLocalImage ?? true) {
+            if aniImage != oldValue, !(aniImage?.isLocal ?? true) {
                 self.addDownloadProgress()
-                self.downloadCancelToken = aImage?.startLoad(completion: { [weak self] (result, image) in
-                    if result {
-                        self?.aniImage = image
-                        DispatchQueue.main.async {
-                            self?.progressLayer.removeFromSuperlayer()
-                            self?.reset()
-                            self?.setNeedsDisplay()
-                            self?.layer.setNeedsDisplay()
-                        }
+                let source = await self.aniImage?.startLoad {  [weak self] progress in
+                    DispatchQueue.main.async {
+                        //
                     }
-                }, progress: { [weak self] (precent) in
-                    self?.showDownloadProgress(precent: precent)
-                }) ?? -1
+                }
+//                self.downloadCancelToken = aniImage?.startLoad(completion: { [weak self] (result, image) in
+//                    if result {
+//                        self?.aniImage = image
+//                        DispatchQueue.main.async {
+//                            self?.progressLayer.removeFromSuperlayer()
+//                            self?.reset()
+//                            self?.setNeedsDisplay()
+//                            self?.layer.setNeedsDisplay()
+//                        }
+//                    }
+//                }, progress: { [weak self] (precent) in
+//                    self?.showDownloadProgress(precent: precent)
+//                }) ?? -1
                 self.reset()
                 return
             }
@@ -132,6 +136,10 @@ class DZAnimatedImageUIView: UIImageView {
         return displayLink
     }()
     
+    public init(placeHolderName: String) {
+        self.placeHolderName = placeHolderName
+    }
+    
     deinit {
         self.aImage = nil
         if self.isDisplayLinkInitialized {
@@ -154,6 +162,11 @@ extension DZAnimatedImageUIView {
     override open func didMoveToWindow() {
         super.didMoveToWindow()
         didMove()
+    }
+    
+    func onDidAppear() {
+        print("DZAnimatedImageUIView onDidAppear")
+        self.aniImage.startLoad()
     }
 }
 
