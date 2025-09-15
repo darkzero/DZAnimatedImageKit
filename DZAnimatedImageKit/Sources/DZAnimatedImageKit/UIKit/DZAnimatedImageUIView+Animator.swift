@@ -7,19 +7,20 @@
 
 import UIKit
 
+@MainActor
 protocol AnimatorDelegate: AnyObject {
     func animator(_ animator: DZAnimatedImageUIView.Animator, didPlayAnimationLoops count: UInt)
 }
 
 extension DZAnimatedImageUIView: AnimatorDelegate {
+    @MainActor
     func animator(_ animator: Animator, didPlayAnimationLoops count: UInt) {
         delegate?.animatedImageView(self, didPlayAnimationLoops: count)
     }
 }
 
 extension DZAnimatedImageUIView {
-    
-    // Represents a single frame in a GIF.
+    // Represents a single frame in a GIF/APNG
     struct AnimatedFrame {
         
         // The image to display for this frame. Its value is nil when the frame is removed from the buffer.
@@ -40,7 +41,6 @@ extension DZAnimatedImageUIView {
         }
         
         // Returns a new instance from an optional image.
-        //
         // - parameter image: An optional `UIImage` instance to be assigned to the new frame.
         // - returns: An `AnimatedFrame` instance.
         func makeAnimatedFrame(image: UIImage?) -> AnimatedFrame {
@@ -51,7 +51,7 @@ extension DZAnimatedImageUIView {
 
 extension DZAnimatedImageUIView {
     // MARK: - Animator
-    class Animator {
+    actor Animator {
         private let size: CGSize
         private let maxFrameCount: Int
         private let imageSource: CGImageSource
@@ -89,9 +89,10 @@ extension DZAnimatedImageUIView {
         
         var previousFrameIndex = 0 {
             didSet {
-                preloadQueue.async {
-                    self.updatePreloadedFrames()
-                }
+                self.updatePreloadedFrames()
+//                preloadQueue.async {
+//                    self.updatePreloadedFrames()
+//                }
             }
         }
         
@@ -139,7 +140,7 @@ extension DZAnimatedImageUIView {
             self.size = size
             self.maxFrameCount = count
             self.repeatMode = repeatMode
-            self.preloadQueue = preloadQueue
+//            self.preloadQueue = preloadQueue
         }
         
         func frame(at index: Int) -> UIImage? {
@@ -159,9 +160,10 @@ extension DZAnimatedImageUIView {
             }
             // load frames
             if self.repeatMode == .infinite {
-                preloadQueue.async { [weak self] in
-                    self?.setupAnimatedFrames()
-                }
+                self.setupAnimatedFrames()
+//                preloadQueue.async { [weak self] in
+//                    self?.setupAnimatedFrames()
+//                }
             }
             else {
                 self.setupAnimatedFrames()
@@ -187,7 +189,7 @@ extension DZAnimatedImageUIView {
                 duration += min(frameDuration, maxTimeStep)
                 animatedFrames += [AnimatedFrame(image: nil, duration: frameDuration)]
                 if index > maxFrameCount { return }
-                animatedFrames[index] = animatedFrames[index].makeAnimatedFrame(image: loadFrame(at: index))
+                animatedFrames[index] = animatedFrames[index].makeAnimatedFrame(image: loadFrame(at: index, scaleSize: CGSize.zero))
             }
             self.loopDuration = duration
         }
@@ -197,7 +199,7 @@ extension DZAnimatedImageUIView {
             animatedFrames = []
         }
         
-        internal func loadFrame(at index: Int) -> UIImage? {
+        internal func loadFrame(at index: Int, scaleSize: CGSize) -> UIImage? {
             guard let image = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
                 return nil
             }
@@ -216,7 +218,7 @@ extension DZAnimatedImageUIView {
                     imgWidth = min(viewMaxWidth, imgWidth)
                     imgHeight = imgWidth/scope
                 }
-                let scaleSize = CGSize(width: imgWidth*UIScreen.main.scale, height: imgHeight*UIScreen.main.scale)
+                // let scaleSize = CGSize(width: imgWidth*UIScreen.main.scale, height: imgHeight*UIScreen.main.scale)
                 UIGraphicsBeginImageContext(scaleSize)
                 img.draw(in: CGRect(origin: .zero, size: scaleSize))
                 scaledImage = UIGraphicsGetImageFromCurrentImageContext()!
@@ -236,7 +238,7 @@ extension DZAnimatedImageUIView {
             preloadIndexes(start: currentFrameIndex).forEach { index in
                 let currentAnimatedFrame = animatedFrames[index]
                 if !currentAnimatedFrame.isPlaceholder { return }
-                animatedFrames[index] = currentAnimatedFrame.makeAnimatedFrame(image: loadFrame(at: index))
+                animatedFrames[index] = currentAnimatedFrame.makeAnimatedFrame(image: loadFrame(at: index, scaleSize: CGSize.zero))
             }
         }
         
@@ -245,7 +247,13 @@ extension DZAnimatedImageUIView {
                 isFinished = true
             } else if currentFrameIndex == 0 {
                 currentRepeatCount += 1
-                delegate?.animator(self, didPlayAnimationLoops: currentRepeatCount)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.delegate?.animator(self, didPlayAnimationLoops: self.currentRepeatCount)
+                }
+//                DispatchQueue.main.async { [weak self] _ in
+//                    self?.delegate?.animator(self!, didPlayAnimationLoops: self?.currentRepeatCount!)
+//                }
             }
             currentFrameIndex = increment(frameIndex: currentFrameIndex)
         }

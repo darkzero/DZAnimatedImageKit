@@ -42,6 +42,25 @@ public enum RepeatMode: Equatable {
     }
 }
 
+/// Protocol of 'AnimatedImageViewDelegate'
+public protocol DZAnimatedImageUIViewDelegate: AnyObject {
+    /// Called after the 'AnimatedImageView' has finished each animation loop.
+    /// - Parameters
+    ///   - imageView: The 'AnimatedImageView' that is being animated
+    ///   - count: The looped count
+    func animatedImageView(_ imageView: DZAnimatedImageUIView, didPlayAnimationLoops count: UInt)
+    
+    /// Called after the 'AnimatedImageView' has reached the max repeat count
+    /// - Parameter imageView: The 'AnimatedImageView' that is being animated
+    func animatedImageView(_ imageView: DZAnimatedImageUIView, didFinishAnimating: Void)
+}
+
+extension DZAnimatedImageUIViewDelegate {
+    public func animatedImageView(_ imageView: DZAnimatedImageUIView, didPlayAnimationLoops count: UInt) {}
+    public func animatedImageView(_ imageView: DZAnimatedImageUIView, didFinishAnimating: Void) {}
+}
+
+@MainActor
 public class DZAnimatedImageUIView: UIImageView {
     /// Auto start playing
     public var autoPlay: Bool = true
@@ -51,6 +70,7 @@ public class DZAnimatedImageUIView: UIImageView {
     public var preloadFrameCount = 10
     /// pre scaling
     public var needsPrescaling = true
+    public weak var delegate: DZAnimatedImageUIViewDelegate?
     ///
     public var placeHolder: UIImage?
     ///
@@ -79,16 +99,28 @@ public class DZAnimatedImageUIView: UIImageView {
         }
     }
     
+    /// Proxy object for preventing a reference cycle
+    /// between the 'CADDisplayLink' and 'AnimatedImageView'
+    class TargetProxy {
+        private weak var target: DZAnimatedImageUIView?
+        init(target: DZAnimatedImageUIView) {
+            self.target = target
+        }
+        @MainActor @objc func onScreenUpdate() {
+            target?.updateFrameIfNeeded()
+        }
+    }
+    
     /// AImage
     public var aniImage: AnimatedImage? {
         didSet {
             if aniImage != oldValue, !(aniImage?.isLocal ?? true) {
                 self.addDownloadProgress()
-                let source = await self.aniImage?.startLoad {  [weak self] progress in
-                    DispatchQueue.main.async {
-                        //
-                    }
-                }
+//                let source = await self.aniImage?.startLoad {  [weak self] progress in
+//                    DispatchQueue.main.async {
+//                        //
+//                    }
+//                }
 //                self.downloadCancelToken = aniImage?.startLoad(completion: { [weak self] (result, image) in
 //                    if result {
 //                        self?.aniImage = image
@@ -121,14 +153,14 @@ public class DZAnimatedImageUIView: UIImageView {
     
     // Dispatch queue used for preloading images.
     private lazy var preloadQueue: DispatchQueue = {
-        return DispatchQueue(label: "cn.dark-egg.DarkEggKit.AnimatedImageView.preloadQueue")
+        return DispatchQueue(label: "cn.darkzero.DZAnimatedImageKit.DZAnimatedImageUIView.preloadQueue")
     }()
     
     // A flag to avoid invalidating the displayLink on deinit if it was never created
     // because displayLink is so lazy.
     private var isDisplayLinkInitialized: Bool = false
     // A display link that keeps calling the 'updateFrame' method on every screen refresh.
-    private lazy var displayLink: CADisplayLink = {
+    @MainActor private lazy var displayLink: CADisplayLink = {
         isDisplayLinkInitialized = true
         let displayLink = CADisplayLink(target: TargetProxy(target: self), selector: #selector(TargetProxy.onScreenUpdate))
         displayLink.add(to: .main, forMode: runLoopMode)
@@ -136,20 +168,21 @@ public class DZAnimatedImageUIView: UIImageView {
         return displayLink
     }()
     
-    public init(placeHolderName: String) {
-        self.placeHolderName = placeHolderName
-    }
+//    public init(placeHolderName: String) {
+//        self.placeHolderName = placeHolderName
+//    }
     
     deinit {
-        self.aImage = nil
+        // self.aniImage = nil
         if self.isDisplayLinkInitialized {
-            self.displayLink.invalidate()
+            DispatchQueue.main.async {
+                self.displayLink.invalidate()
+            }
         }
     }
 }
 
 extension DZAnimatedImageUIView {
-    /// Clear data when disappear, free the memory
     override open func willMove(toWindow newWindow: UIWindow?) {
         guard let _ = newWindow else {
             //self.clear()
@@ -166,8 +199,11 @@ extension DZAnimatedImageUIView {
     
     func onDidAppear() {
         print("DZAnimatedImageUIView onDidAppear")
-        self.aniImage.startLoad()
+        Task {
+            let srcBox = await try self.aniImage?.startLoad()
+        }
     }
+    /// Clear data when disappear, free the memory
 }
 
 extension DZAnimatedImageUIView {
@@ -246,14 +282,14 @@ extension DZAnimatedImageUIView {
     /// Reset the animator.
     private func reset() {
         animator = nil
-        if let aImg = self.aImage, let imageSource = aImg.imageSource {
+        if let aImg = self.aniImage, let imageSource = aImg.imgSrcBox?.raw {
             DispatchQueue.main.async {
                 let targetSize = self.bounds.size //bounds.scaled(UIScreen.main.scale).size
                 let animator = Animator(
                     imageSource: imageSource,
                     contentMode: self.contentMode,
                     size: targetSize,
-                    framePreloadCount: self.framePreloadCount,
+                    framePreloadCount: self.preloadFrameCount,
                     repeatMode: self.repeatMode,
                     preloadQueue: self.preloadQueue)
                 animator.delegate = self
@@ -271,7 +307,7 @@ extension DZAnimatedImageUIView {
     }
     
     public func clear() {
-        self.aImage = nil
+        self.aniImage = nil
         self.animator?.resetAnimatedFrames()
         self.animator = nil
         self.reset()
@@ -280,7 +316,7 @@ extension DZAnimatedImageUIView {
 
 extension DZAnimatedImageUIView {
     public func cancelDownloading() {
-        self.aImage?.cancelLoad(token: self.downloadCancelToken)
+        //self.aniImage?.cancelLoad(token: self.downloadCancelToken)
         self.progressLayer.removeFromSuperlayer()
     }
 }

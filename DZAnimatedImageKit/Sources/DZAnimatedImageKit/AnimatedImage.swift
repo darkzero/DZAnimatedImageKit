@@ -12,11 +12,12 @@ import UIKit
 final public class AnimatedImage: NSObject {
     private let key: String
     private var cancelToken: SessionDataTask.CancelToken = -1
-    internal var imageSource: CGImageSource?
+    //internal var imageSource: CGImageSource?
+    var imgSrcBox: ImageSourceBox?
     let isLocal: Bool
     private var downloadTask: Task<ImageSourceBox?, Error>?
     
-    private let srcDownloader: SourceDownloader = .default
+    private let srcDownloader: SourceDownloader = .shared
     
     /// override ==
     /// - Parameters:
@@ -47,8 +48,12 @@ final public class AnimatedImage: NSObject {
             self.init(source: src.raw, key: path, isLocal: true)
         } else {
             let url = URL(fileURLWithPath: path)
-            let src = CGImageSourceCreateWithURL(url as CFURL, nil)
-            self.init(source: src, key: path, isLocal: true)
+            if let src = CGImageSourceCreateWithURL(url as CFURL, nil) {
+                self.init(source: src, key: path, isLocal: true)
+            }
+            else {
+                fatalError("init(path:) can not read resourc file.")
+            }
         }
     }
     
@@ -58,7 +63,9 @@ final public class AnimatedImage: NSObject {
     ///   - key: image string key
     ///   - isLocal: is local image
     private init(source: CGImageSource? = nil, key: String, isLocal: Bool = false) {
-        self.imageSource = source
+        if let source = source {
+            self.imgSrcBox = ImageSourceBox(raw: source)
+        }
         self.key = key
         self.isLocal = isLocal
         super.init()
@@ -66,7 +73,7 @@ final public class AnimatedImage: NSObject {
     
     /// deinit
     deinit {
-        self.imageSource = nil
+        self.imgSrcBox = nil
     }
 }
 
@@ -77,10 +84,10 @@ extension AnimatedImage {
     ///   - completion: completion handle
     ///   - progress: progress %
     /// - Returns: cancel token for cancel
-    internal func startLoad(onProgress: ((Float) -> Void)? = nil) async throws -> CGImageSource? {
+    internal func startLoad(onProgress: ((Float) -> Void)? = nil) async throws -> ImageSourceBox? {
         // image source already loaded
-        guard self.imageSource == nil else {
-            return self.imageSource
+        guard self.imgSrcBox == nil else {
+            return self.imgSrcBox
         }
         // download
         let (cancelToken, stream) = await try self.srcDownloader.downloadImageAsync(from: self.key)
@@ -96,8 +103,8 @@ extension AnimatedImage {
                     guard let validSource = source else {
                         throw URLError(.cannotCreateFile)
                     }
-                    self.imageSource = validSource.raw
-                    return self.imageSource
+                    self.imgSrcBox = validSource
+                    return validSource
                 }
             }
             throw URLError(.cancelled)
@@ -113,5 +120,39 @@ extension AnimatedImage {
     /// - Parameter token: cancel token
     internal func cancelLoad(token: SessionDataTask.CancelToken) async {
         await self.srcDownloader.cancelDownload(self.key, token: token)
+    }
+}
+
+// MARK: - Get frame duration for animator
+extension AnimatedImage {
+    internal class func getFrameDuration(from imageSource: CGImageSource, at idx: Int) -> TimeInterval {
+        guard let property = CGImageSourceCopyPropertiesAtIndex(imageSource, idx, nil) as? [String: Any] else {
+            return 0.0
+        }
+        let defaultDuration: TimeInterval = 1.0/60.0
+        var aniInfo: [String: Any]?
+        
+        if property[kCGImagePropertyGIFDictionary as String] as? [String: Any] != nil {         // gif
+            aniInfo = property[kCGImagePropertyGIFDictionary as String] as? [String: Any]
+        }
+        else if property[kCGImagePropertyPNGDictionary as String] as? [String: Any] != nil {    // png
+            aniInfo = property[kCGImagePropertyPNGDictionary as String] as? [String: Any]
+        }
+        else {
+            return defaultDuration
+        }
+        
+        guard let gifInfo = aniInfo else {
+            return defaultDuration
+        }
+        
+        let unclampedDelayTime = gifInfo[kCGImagePropertyGIFUnclampedDelayTime as String] as? NSNumber
+        let delayTime = gifInfo[kCGImagePropertyGIFDelayTime as String] as? NSNumber
+        let duration = unclampedDelayTime ?? delayTime
+        
+        guard let frameDuration = duration else {
+            return defaultDuration
+        }
+        return max(frameDuration.doubleValue, defaultDuration)
     }
 }
