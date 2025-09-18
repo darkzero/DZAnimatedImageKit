@@ -110,7 +110,7 @@ extension AnimatedImage {
             throw URLError(.cancelled)
         }
         catch(let error) {
-            await SourceDownloader.default.cancelDownload(self.key, token: self.cancelToken)
+            await SourceDownloader.shared.cancelDownload(self.key, token: self.cancelToken)
             self.cancelToken = -1
             throw error
         }

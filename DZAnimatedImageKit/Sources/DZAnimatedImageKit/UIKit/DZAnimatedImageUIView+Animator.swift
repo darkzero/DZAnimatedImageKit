@@ -50,17 +50,44 @@ extension DZAnimatedImageUIView {
 }
 
 extension DZAnimatedImageUIView {
-    // MARK: - Animator
+    // MARK: - Animator(actor)
     actor Animator {
+        // config
+        private let contentMode: UIView.ContentMode
         private let size: CGSize
-        private let maxFrameCount: Int
-        private let imageSource: CGImageSource
         private var repeatMode: RepeatMode
+        
+        // Image source and meta
+        private let imageSource: CGImageSource
+        private let maxFrameCount: Int
         private let maxTimeStep: TimeInterval = 1.0
         private var animatedFrames = [AnimatedFrame]()
         private var frameCount = 0
         private var timeSinceLastFrameChange: TimeInterval = 0.0
-        private var currentRepeatCount: UInt = 0
+        
+        // playback states (actor-isolated)
+        private var currentFrameIndex: Int = 0 {
+            didSet {
+                previousFrameIndex = oldValue
+            }
+        }
+        var previousFrameIndex = 0 {
+            didSet {
+                self.updatePreloadedFrames()
+//                preloadQueue.async {
+//                    self.updatePreloadedFrames()
+//                }
+            }
+        }
+        
+        private var currentRepeatCount: Int = 0
+        private var playingTask: Task<Void, Never>?
+        private var isStopped: Bool = false
+        
+        // Preload & cache (very light)
+        private let preloadCount: Int
+        private var frameCache: [Int: CGImage] = [:]
+        
         
         var isFinished: Bool = false
         
@@ -78,22 +105,6 @@ extension DZAnimatedImageUIView {
         // Current active frame duration
         var currentFrameDuration: TimeInterval {
             return duration(at: currentFrameIndex)
-        }
-        
-        // The index of the current GIF frame.
-        var currentFrameIndex = 0 {
-            didSet {
-                previousFrameIndex = oldValue
-            }
-        }
-        
-        var previousFrameIndex = 0 {
-            didSet {
-                self.updatePreloadedFrames()
-//                preloadQueue.async {
-//                    self.updatePreloadedFrames()
-//                }
-            }
         }
         
         var isReachMaxRepeatCount: Bool {
@@ -115,8 +126,6 @@ extension DZAnimatedImageUIView {
             return maxFrameCount < frameCount - 1
         }
         
-        var contentMode = UIView.ContentMode.scaleToFill
-        
         private lazy var preloadQueue: DispatchQueue = {
             return DispatchQueue(label: "cn.darkzero.DarkEggKit.AImageView.preloadQueue")
         }()
@@ -129,8 +138,7 @@ extension DZAnimatedImageUIView {
         ///   - size: Size of the `AnimatedImageView`.
         ///   - count: Count of frames needed to be preloaded.
         ///   - repeatCount: The repeat count should this animator uses.
-        init(imageSource source: CGImageSource,
-             contentMode mode: UIView.ContentMode,
+        init(imageSource source: CGImageSource, contentMode mode: UIView.ContentMode = .scaleToFill,
              size: CGSize,
              framePreloadCount count: Int,
              repeatMode: RepeatMode,
@@ -138,9 +146,34 @@ extension DZAnimatedImageUIView {
             self.imageSource = source
             self.contentMode = mode
             self.size = size
-            self.maxFrameCount = count
+            self.preloadCount = max(0, count)
             self.repeatMode = repeatMode
-//            self.preloadQueue = preloadQueue
+            self.frameCount = CGImageSourceGetCount(imageSource)
+            self.loopCountFromMeta = Animator.readLoopCount(from: imageSource) ?? 0
+        }
+        
+        func start(onFrame: @MainActor @Sendable (_ image: CGImage, _ duration: TimeInterval) -> Void,
+                   onLoop: @MainActor @Sendable (_ count: Int) -> Void?) {
+            guard playingTask == nil, frameCount > 0 else {
+                return
+            }
+            isStopped = false
+            
+            playingTask = Task.detached(operation: { [weak self] in
+                guard let self = self else {
+                    return
+                }
+                while !(await self.isStopped) {
+                    let idx = await self.currentFrameIndex
+                    guard let (cg, dur) = await self.decodeFrame(at: idx) else {
+                        await self.advanceFrameIndex()
+                    }
+                    // push to ui
+                    await MainActor.run {
+                        onFrame(cg, dur)
+                    }
+                }
+            })
         }
         
         func frame(at index: Int) -> UIImage? {
@@ -249,7 +282,7 @@ extension DZAnimatedImageUIView {
                 currentRepeatCount += 1
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    await self.delegate?.animator(self, didPlayAnimationLoops: self.currentRepeatCount)
+                    //await self.delegate?.animator(self, didPlayAnimationLoops: self.currentRepeatCount)
                 }
 //                DispatchQueue.main.async { [weak self] _ in
 //                    self?.delegate?.animator(self!, didPlayAnimationLoops: self?.currentRepeatCount!)

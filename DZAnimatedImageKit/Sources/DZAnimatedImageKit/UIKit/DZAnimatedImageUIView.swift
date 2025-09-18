@@ -168,10 +168,6 @@ public class DZAnimatedImageUIView: UIImageView {
         return displayLink
     }()
     
-//    public init(placeHolderName: String) {
-//        self.placeHolderName = placeHolderName
-//    }
-    
     deinit {
         // self.aniImage = nil
         if self.isDisplayLinkInitialized {
@@ -189,7 +185,6 @@ extension DZAnimatedImageUIView {
             return
         }
         self.reset()
-        self.startAnimating()
     }
     
     override open func didMoveToWindow() {
@@ -200,7 +195,15 @@ extension DZAnimatedImageUIView {
     func onDidAppear() {
         print("DZAnimatedImageUIView onDidAppear")
         Task {
-            let srcBox = await try self.aniImage?.startLoad()
+            let srcBox = await try self.aniImage?.startLoad { progress in
+                print("\(progress)")
+            }
+            let source = srcBox?.raw
+            self.progressLayer.removeFromSuperlayer()
+            self.reset()
+            self.setNeedsDisplay()
+            self.layer.setNeedsDisplay()
+            self.startAnimating()
         }
     }
     /// Clear data when disappear, free the memory
@@ -208,8 +211,11 @@ extension DZAnimatedImageUIView {
 
 extension DZAnimatedImageUIView {
     private func updateFrameIfNeeded() {
-        guard let animator = animator else {
+        guard let animator = self.animator else {
             return
+        }
+        Task { @MainActor in
+            
         }
         // If finished
         // call finish callback

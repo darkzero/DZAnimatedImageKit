@@ -24,60 +24,6 @@ actor SourceDownloader {
 }
 
 extension SourceDownloader {
-    /// Downloads image data incrementally and builds a CGImageSource (supports GIF/APNG).
-    /// - Parameters:
-    ///   - url: remote URL
-    ///   - onProgress: optional progress callback 0...1 (called on the calling Task context)
-    /// - Returns: ImageSourceBox wrapping a CGImageSource (incremental, but marked finalized at end)
-    public func loadImageSource(from url: URL,
-                                onProgress: (@Sendable (Float) -> Void)? = nil) async throws -> ImageSourceBox {
-        // Incremental source
-        guard let inc = CGImageSourceCreateIncremental(nil) else {
-            throw URLError(.cannotCreateFile)
-        }
-
-        let (bytes, response) = try await URLSession.shared.bytes(from: url)
-        let expected = response.expectedContentLength > 0 ? Double(response.expectedContentLength) : nil
-
-        var received: Int64 = 0
-        var data = Data()
-
-        do {
-            for try await chunk in bytes {
-                try Task.checkCancellation()
-                data.append(contentsOf: chunk)
-                received += Int64(chunk.count)
-
-                // feed partial data
-                data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-                    let buf = CFDataCreate(kCFAllocatorDefault,
-                                           ptr.bindMemory(to: UInt8.self).baseAddress,
-                                           data.count)!
-                    CGImageSourceUpdateData(inc, buf, false)
-                }
-                if let expected {
-                    onProgress?(Float(Double(received) / expected))
-                }
-            }
-        } catch {
-            // propagate cancellation or network error
-            throw error
-        }
-
-        // finalize
-        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-            let buf = CFDataCreate(kCFAllocatorDefault,
-                                   ptr.bindMemory(to: UInt8.self).baseAddress,
-                                   data.count)!
-            CGImageSourceUpdateData(inc, buf, true)
-        }
-
-        onProgress?(1.0)
-        return ImageSourceBox(raw: inc)
-    }
-}
-
-extension SourceDownloader {
     internal func downloadImage(from url: String,
                                 completion: @escaping ((DownloadResult) -> Void),
                                 progress: ((Float) -> Void)? = nil) -> SessionDataTask.CancelToken {
