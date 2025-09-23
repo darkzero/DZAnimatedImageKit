@@ -18,30 +18,6 @@ public typealias UIImageView = NSImageView
 public typealias UIImage = NSImage
 #endif
 
-public enum RepeatMode: Equatable {
-    case once
-    case finite(_ count: UInt)
-    case infinite
-    
-    /// Equatable '=='
-    public static func ==(lhs: RepeatMode, rhs: RepeatMode) -> Bool {
-        switch (lhs, rhs) {
-        case let (.finite(l), .finite(r)):
-            return l == r
-        case (.once, .once),
-             (.infinite, .infinite):
-            return true
-        case (.once, .finite(let count)),
-             (.finite(let count), .once):
-            return count == 1
-        case (.once, _),
-             (.infinite, _),
-             (.finite, _):
-            return false
-        }
-    }
-}
-
 /// Protocol of 'AnimatedImageViewDelegate'
 public protocol DZAnimatedImageUIViewDelegate: AnyObject {
     /// Called after the 'AnimatedImageView' has finished each animation loop.
@@ -61,262 +37,174 @@ extension DZAnimatedImageUIViewDelegate {
 }
 
 @MainActor
-public class DZAnimatedImageUIView: UIImageView {
-    /// Auto start playing
-    public var autoPlay: Bool = true
-    /// Whether the image is displaying or not
-    public var play: Bool = false
-    /// preload frame count
-    public var preloadFrameCount = 10
-    /// pre scaling
-    public var needsPrescaling = true
-    public weak var delegate: DZAnimatedImageUIViewDelegate?
-    ///
-    public var placeHolder: UIImage?
-    ///
-    public var willShowProgress: Bool = true
-    /// Repeat Mode (default is infinite)
-    public var repeatMode: RepeatMode = .infinite {
-        didSet {
-            if oldValue != repeatMode {
-                self.reset()
-                self.setNeedsDisplay()
-                self.layer.setNeedsDisplay()
-            }
-        }
-    }
-    
-    /// The run loop mode of animation timer
-    /// Default is 'RunLoop.Mode.common'
-    /// 'RunLoop.Mode.default' will make the animation pause during UIScrollView scrolling
-    public var runLoopMode = RunLoop.Mode.common {
-        willSet {
-            guard runLoopMode == newValue else { return }
-            self.stopAnimating()
-            self.displayLink.remove(from: .main, forMode: runLoopMode)
-            self.displayLink.add(to: .main, forMode: newValue)
-            self.startAnimating()
-        }
-    }
-    
-    /// Proxy object for preventing a reference cycle
-    /// between the 'CADDisplayLink' and 'AnimatedImageView'
-    class TargetProxy {
-        private weak var target: DZAnimatedImageUIView?
-        init(target: DZAnimatedImageUIView) {
-            self.target = target
-        }
-        @MainActor @objc func onScreenUpdate() {
-            target?.updateFrameIfNeeded()
-        }
-    }
-    
-    /// AImage
+public final class DZAnimatedImageUIView: UIView {
+    // MARK: - Public surface
     public var aniImage: AnimatedImage? {
         didSet {
-            if aniImage != oldValue, !(aniImage?.isLocal ?? true) {
-                self.addDownloadProgress()
-//                let source = await self.aniImage?.startLoad {  [weak self] progress in
-//                    DispatchQueue.main.async {
-//                        //
-//                    }
-//                }
-//                self.downloadCancelToken = aniImage?.startLoad(completion: { [weak self] (result, image) in
-//                    if result {
-//                        self?.aniImage = image
-//                        DispatchQueue.main.async {
-//                            self?.progressLayer.removeFromSuperlayer()
-//                            self?.reset()
-//                            self?.setNeedsDisplay()
-//                            self?.layer.setNeedsDisplay()
-//                        }
-//                    }
-//                }, progress: { [weak self] (precent) in
-//                    self?.showDownloadProgress(precent: precent)
-//                }) ?? -1
-                self.reset()
-                return
-            }
-            self.reset()
-            DispatchQueue.main.async {
-                self.setNeedsDisplay()
-                self.layer.setNeedsDisplay()
-            }
+            loadAndStart()
         }
     }
+    public var placeHolder: UIImage?
+    public var willShowProgress: Bool = true
+    public var repeatMode: RepeatMode = .infinite
+    public weak var delegate: DZAnimatedImageUIViewDelegate?
     
-    
-    // MARK: - Private property
-    /// 'Animator' instance that holds the frames of a specific image in memory.
+    // MARK: - Private UI state (MainActor only)
+    private var currentFrameCGImage: CGImage?
     private var animator: Animator?
+    private var isAnimating: Bool = false
+    private var loadTask: Task<Void, Never>?
+    private let progressView = UIProgressView(progressViewStyle: .default)
+    
+    // Optional: a very light progress indicator
+//    private let progressLayer: CAShapeLayer = {
+//        let l = CAShapeLayer()
+//        l.strokeColor = UIColor.systemGray.cgColor
+//        l.fillColor = UIColor.clear.cgColor
+//        l.lineWidth = 2
+//        l.isHidden = true
+//        return l
+//    }()
     private var progressLayer = CAShapeLayer()
     
-    // Dispatch queue used for preloading images.
-    private lazy var preloadQueue: DispatchQueue = {
-        return DispatchQueue(label: "cn.darkzero.DZAnimatedImageKit.DZAnimatedImageUIView.preloadQueue")
-    }()
+    public override class var layerClass: AnyClass { CALayer.self }
     
-    // A flag to avoid invalidating the displayLink on deinit if it was never created
-    // because displayLink is so lazy.
-    private var isDisplayLinkInitialized: Bool = false
-    // A display link that keeps calling the 'updateFrame' method on every screen refresh.
-    @MainActor private lazy var displayLink: CADisplayLink = {
-        isDisplayLinkInitialized = true
-        let displayLink = CADisplayLink(target: TargetProxy(target: self), selector: #selector(TargetProxy.onScreenUpdate))
-        displayLink.add(to: .main, forMode: runLoopMode)
-        displayLink.isPaused = true
-        return displayLink
-    }()
-    
-    deinit {
-        // self.aniImage = nil
-        if self.isDisplayLinkInitialized {
-            DispatchQueue.main.async {
-                self.displayLink.invalidate()
-            }
-        }
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+        commonInit()
     }
-}
-
-extension DZAnimatedImageUIView {
-    override open func willMove(toWindow newWindow: UIWindow?) {
-        guard let _ = newWindow else {
-            //self.clear()
-            return
-        }
-        self.reset()
+    public required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        commonInit()
     }
     
-    override open func didMoveToWindow() {
-        super.didMoveToWindow()
-        didMove()
+    private func commonInit() {
+        layer.contentsGravity = .resizeAspect
+        //layer.addSublayer(progressLayer)
+        // self.addSubview(self.progressView)
     }
     
-    func onDidAppear() {
-        print("DZAnimatedImageUIView onDidAppear")
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        //progressLayer.frame = bounds
+        //progressLayer.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 4), cornerRadius: 8).cgPath
+    }
+    
+    //
+    /// loadAndStart
+    private func loadAndStart() {
+        loadTask?.cancel()
+        loadTask = nil
         Task {
-            let srcBox = await try self.aniImage?.startLoad { progress in
-                print("\(progress)")
-            }
-            let source = srcBox?.raw
-            self.progressLayer.removeFromSuperlayer()
-            self.reset()
-            self.setNeedsDisplay()
-            self.layer.setNeedsDisplay()
-            self.startAnimating()
+            await animator?.stop()
+            animator = nil
         }
-    }
-    /// Clear data when disappear, free the memory
-}
 
-extension DZAnimatedImageUIView {
-    private func updateFrameIfNeeded() {
-        guard let animator = self.animator else {
-            return
-        }
-        Task { @MainActor in
-            
-        }
-        // If finished
-        // call finish callback
-        guard !animator.isFinished else {
-            stopAnimating()
-            delegate?.animatedImageView(self, didFinishAnimating: ())
-            return
-        }
-        let duration: CFTimeInterval
-        if displayLink.preferredFramesPerSecond == 0 {
-            duration = displayLink.duration
-        } else {
-            // Some devices may have different FPS.
-            duration = 1.0 / Double(displayLink.preferredFramesPerSecond)
-        }
+        guard let img = aniImage else { return }
         
-        animator.shouldChangeFrame(with: duration) { [weak self] hasNewFrame in
-            if hasNewFrame {
-                self?.layer.setNeedsDisplay()
-            }
-        }
-    }
-}
-
-extension DZAnimatedImageUIView {
-    override open var isAnimating: Bool {
-        if isDisplayLinkInitialized {
-            return !displayLink.isPaused
-        } else {
-            return false
-        }
-    }
-    
-    /// Start the animation.
-    override open func startAnimating() {
-        guard !isAnimating else { return }
-        if animator?.isReachMaxRepeatCount ?? false {
-            return
-        }
-        displayLink.isPaused = false
-    }
-    
-    /// Stop the animation.
-    override open func stopAnimating() {
-        super.stopAnimating()
-        //self.animator?.resetAnimatedFrames()
-        if isDisplayLinkInitialized {
-            displayLink.isPaused = true
-        }
-    }
-    
-    override open func display(_ layer: CALayer) {
-        if let currentFrame = animator?.currentFrameImage {
-            layer.contents = currentFrame.cgImage
-        } else {
-            //layer.contents = self.placeHolder?.cgImage
-        }
-    }
-    
-    private func didMove() {
-        if self.autoPlay && animator != nil {
-            if let _ = superview, let _ = window {
-                startAnimating()
-            } else {
-                stopAnimating()
-            }
-        }
-    }
-    
-    /// Reset the animator.
-    private func reset() {
-        animator = nil
-        if let aImg = self.aniImage, let imageSource = aImg.imgSrcBox?.raw {
-            DispatchQueue.main.async {
-                let targetSize = self.bounds.size //bounds.scaled(UIScreen.main.scale).size
-                let animator = Animator(
-                    imageSource: imageSource,
-                    contentMode: self.contentMode,
-                    size: targetSize,
-                    framePreloadCount: self.preloadFrameCount,
-                    repeatMode: self.repeatMode,
-                    preloadQueue: self.preloadQueue)
-                animator.delegate = self
-                animator.needsPrescaling = self.needsPrescaling
-                animator.prepareFramesAsynchronously()
-                self.animator = animator
-                
-                if self.image == nil {
-                    let img = animator.loadFrame(at: 0)
-                    self.image = img
+        self.addDownloadProgress()
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                await MainActor.run {
+                    self.progressView.isHidden = false
+                    self.progressView.progress = 0
                 }
+                
+                print("start load")
+                let box = try await img.load(onProgress: { [weak self] p in
+                    Task { @MainActor in
+                        print("DZAnimatedImageUIView progress is \(p)")
+                        self?.progressView.progress = p
+                        self?.showDownloadProgress(precent: p)
+                    }
+                })
+                print("load returned")
+                let count = CGImageSourceGetCount(box.raw)
+                assert(count > 0, "Remote CGImageSource has 0 frames")
+                if let testFirst = CGImageSourceCreateImageAtIndex(box.raw, 0, nil) {
+                    // 临时把第一帧塞给 layer，看得见说明渲染链路没问题
+                    await MainActor.run { self.layer.contents = testFirst }
+                } else {
+                    assertionFailure("Cannot create first frame image from source")
+                }
+
+                // Animator 用 ImageSourceBox（避免 CGImageSource Sendable 告警）
+                let a = Animator(imageSourceBox: box,
+                                 contentMode: self.contentMode,
+                                 size: self.bounds.isEmpty ? CGSize(width: 1, height: 1) : self.bounds.size,
+                                 framePreloadCount: 6,
+                                 repeatMode: self.repeatMode)
+                self.animator = a
+                print("remove progress")
+                self.progressLayer.removeFromSuperlayer()
+                await a.prepareFramesAsynchronously()
+
+                await a.start(
+                    onFrame: { [weak self] cgImage, _ in self?.layer.contents = cgImage },
+                    onLoop:  { _ in /* 可转发 delegate */ }
+                )
+
+                await MainActor.run { self.progressView.isHidden = true }
+            } catch {
+                print("load failed:", error)
+                await MainActor.run { self.progressView.isHidden = true }
             }
         }
-        didMove()
     }
     
-    public func clear() {
-        self.aniImage = nil
-        self.animator?.resetAnimatedFrames()
-        self.animator = nil
-        self.reset()
+    @inlinable
+    func withTimeout<T: Sendable>(
+        seconds: Double,
+        _ op: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await op() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+    
+    public func startAnimatingq() {
+        guard !isAnimating, let animator else { return }
+        isAnimating = true
+        //progressLayer.isHidden = true
+        
+        Task { [weak self] in
+            guard let self else { return }
+            // 跨 actor 调用需要 await：放到子任务里就可以 await 了
+            await animator.start(
+                onFrame: { [weak self] cgImage, _ in
+                    precondition(Thread.isMainThread, "onFrame not on main!")
+                    guard let self else { return }
+                    // onFrame 被标注了 @MainActor，这里在主线程安全更新 UI
+                    self.layer.contents = cgImage
+                },
+                onLoop: { [weak self] count in
+                    precondition(Thread.isMainThread, "onFrame not on main!")
+                    guard let self else { return }
+                    self.delegate?.animatedImageView(self, didPlayAnimationLoops: UInt(count))
+                }
+            )
+        }
+    }
+    
+    public func stopAnimating() {
+        isAnimating = false
+        Task { [weak self] in
+            await self?.animator?.stop()
+        }
+    }
+    
+    public func reset() {
+        stopAnimating()
+        currentFrameCGImage = nil
+        layer.contents = nil
     }
 }
 
@@ -325,9 +213,7 @@ extension DZAnimatedImageUIView {
         //self.aniImage?.cancelLoad(token: self.downloadCancelToken)
         self.progressLayer.removeFromSuperlayer()
     }
-}
-
-extension DZAnimatedImageUIView {
+    
     internal func addDownloadProgress() {
         // show placeholder image
         DispatchQueue.main.async {
@@ -341,8 +227,8 @@ extension DZAnimatedImageUIView {
         DispatchQueue.main.async {
             let width:CGFloat = max(min(self.bounds.width, self.bounds.height)/2.0, 64.0)
             let processPath = UIBezierPath()
-            processPath.lineCapStyle    = CGLineCap.round
-            let radius: CGFloat = width*0.75
+            processPath.lineCapStyle = CGLineCap.round
+            let radius: CGFloat = width * 0.75
             let startAngle = -(Float.pi) / 2
             let endAngle = (2 * Float.pi) + startAngle
             
@@ -351,7 +237,7 @@ extension DZAnimatedImageUIView {
                                                   size: CGSize(width: width, height: width))
                 self.progressLayer.strokeColor = UIColor.white.withAlphaComponent(0.8).cgColor
                 self.progressLayer.cornerRadius = 8.0
-                self.progressLayer.backgroundColor = UIColor.gray.withAlphaComponent(0.3).cgColor
+                self.progressLayer.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.5).cgColor
                 self.progressLayer.fillColor = UIColor.clear.cgColor
                 self.progressLayer.lineWidth = 8.0
                 self.progressLayer.lineCap = .round
@@ -379,9 +265,39 @@ extension DZAnimatedImageUIView {
     }
 }
 
-// MARK: - Class function for test
-//extension DZAnimatedImageUIView {
-//    public class func clearCache() {
-//        SourceCache.default.clear()
-//    }
-//}
+// MARK: -
+/// RepeatMode
+public enum RepeatMode: Equatable, Sendable {
+    case once
+    case finite(_ count: UInt)
+    case infinite
+    
+    /// Equatable '=='
+    public static func ==(lhs: RepeatMode, rhs: RepeatMode) -> Bool {
+        switch (lhs, rhs) {
+        case let (.finite(l), .finite(r)):
+            return l == r
+        case (.once, .once),
+             (.infinite, .infinite):
+            return true
+        case (.once, .finite(let count)),
+             (.finite(let count), .once):
+            return count == 1
+        case (.once, _),
+             (.infinite, _),
+             (.finite, _):
+            return false
+        }
+    }
+}
+
+extension UIView.ContentMode {
+    var dz_contentsGravity: CALayerContentsGravity {
+        switch self {
+        case .scaleAspectFill: return .resizeAspectFill
+        case .scaleAspectFit: return .resizeAspect
+        case .scaleToFill: return .resize
+        default: return .resizeAspect
+        }
+    }
+}
