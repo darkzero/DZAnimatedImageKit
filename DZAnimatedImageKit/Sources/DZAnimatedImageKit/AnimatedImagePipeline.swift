@@ -20,16 +20,12 @@ public actor AnimatedImagePipeline {
             onProgress?(1.0)
             return cached
         }
-        
-        print("fetchRemote 🌐 start download")
         // 直接复用你现有的异步下载 API
         let (cancelToken, stream) = try await SourceDownloader.shared.downloadImageAsync(from: key)
-        print("fetchRemote 🌐 got headers contentLength =", stream)
 
         // 任务被取消时，确保取消底层下载
         return try await withTaskCancellationHandler(operation: {
             for try await progress in stream {
-                print("111")
                 try Task.checkCancellation()
                 if progress < 1.0 {
                     onProgress?(progress)
@@ -55,7 +51,6 @@ extension AnimatedImagePipeline {
         url: URL,
         onProgress: (@Sendable (Float) -> Void)?
     ) async throws -> ImageSourceBox {
-        print("fetchRemote ⏩ url =", url.absoluteString)
         // check cache
         if let cached = await _imgSrcCache.findSource(from: key) {
             onProgress?(1.0)
@@ -63,9 +58,7 @@ extension AnimatedImagePipeline {
         }
 
         // download data
-        print("fetchRemote 🌐 start download")
         let (bytes, resp) = try await URLSession.shared.bytes(from: url)
-        print("fetchRemote 🌐 got headers contentLength =", resp.expectedContentLength)
         
         let expected: Double? = resp.expectedContentLength > 0 ? Double(resp.expectedContentLength) : nil
 
@@ -76,20 +69,17 @@ extension AnimatedImagePipeline {
             data.append(byte)
             count &+= 1
             if count % 8192 == 0 {
-                print("fetchRemote 📦 bytes =", data.count)
                 if let expected {
                     onProgress?(Float(Double(data.count) / expected))
                 }
             }
         }
 
-        // 3) 构建 CGImageSource
+        // make CGImageSource
         let options: CFDictionary? = nil
         guard let src = CGImageSourceCreateWithData(data as CFData, options) else {
-            print("fetchRemote ❌ cannotCreateFile")
             throw URLError(.cannotCreateFile)
         }
-        print("fetchRemote ✅ success frames =", CGImageSourceGetCount(src))
         let box = ImageSourceBox(raw: src)
 
         // write to cache
