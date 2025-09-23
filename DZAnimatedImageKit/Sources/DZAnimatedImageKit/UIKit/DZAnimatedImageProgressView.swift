@@ -14,12 +14,22 @@ final class DZAnimatedImageProgressView: UIView {
 
 extension DZAnimatedImageProgressView {
     internal func updateProgress(_ progress: CGFloat) {
-        // TODO
+        // text
         self.progressLbl?.text = "\(Int(progress * 100))%"
+        // progress
+        let arcAnimation = CABasicAnimation(keyPath: #keyPath(CAShapeLayer.strokeEnd))
+        //arcAnimation.beginTime = 0.0
+        arcAnimation.fromValue = self.progressLayer.presentation()?.strokeEnd
+        arcAnimation.toValue  = precent
+        arcAnimation.duration = 0.1
+        arcAnimation.isRemovedOnCompletion = false
+        arcAnimation.fillMode = CAMediaTimingFillMode.both
+        self.progressLayer.add(arcAnimation, forKey: "DarwPathAnimation")
+        CATransaction.commit()
     }
     
     internal func stop() {
-        //
+        self.removeFromSuperview()
     }
     
     init(frame: CGRect) {
@@ -42,6 +52,8 @@ extension DZAnimatedImageProgressView {
         self.layer.addSublayer(self.progressLayer)
         //
         self.progressLbl = UILabel()
+        self.progressLbl?.text = "0%"
+        self.addSubview(self.progressLbl)
     }
 }
 
