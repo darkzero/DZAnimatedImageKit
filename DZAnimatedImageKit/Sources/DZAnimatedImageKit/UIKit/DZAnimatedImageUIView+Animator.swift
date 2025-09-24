@@ -20,26 +20,21 @@ extension DZAnimatedImageUIView: AnimatorDelegate {
 }
 
 extension DZAnimatedImageUIView {
-    // Represents a single frame in a GIF/APNG
+    /// Represents a single frame in a GIF/APNG
     struct AnimatedFrame {
-        
         // The image to display for this frame. Its value is nil when the frame is removed from the buffer.
         let image: UIImage?
-        
         // The duration that this frame should remain active.
         let duration: TimeInterval
-        
         // A placeholder frame with no image assigned.
         // Used to replace frames that are no longer needed in the animation.
         var placeholderFrame: AnimatedFrame {
             return AnimatedFrame(image: nil, duration: duration)
         }
-        
         // Whether this frame instance contains an image or not.
         var isPlaceholder: Bool {
             return image == nil
         }
-        
         // Returns a new instance from an optional image.
         // - parameter image: An optional `UIImage` instance to be assigned to the new frame.
         // - returns: An `AnimatedFrame` instance.
@@ -56,61 +51,46 @@ extension DZAnimatedImageUIView {
         private let contentMode: UIView.ContentMode
         private let size: CGSize
         private var repeatMode: RepeatMode
+        private let screenScale: CGFloat // screen scale 2x or 3x
         
         // Image source and meta
         private let imageSourceBox: ImageSourceBox
-        private let maxFrameCount: Int
-        private let maxTimeStep: TimeInterval = 1.0
         private var animatedFrames = [AnimatedFrame]()
         private var frameCount = 0
+        private let maxTimeStep: TimeInterval = 1.0
         private let loopCountFromMeta: Int
+        // Total duration of one animation loop
+        private(set) var loopDuration: TimeInterval = 0
+        private let maxFrameCount: Int
         private var timeSinceLastFrameChange: TimeInterval = 0.0
         
         // playback states (actor-isolated)
         private var currentFrameIndex: Int = 0 {
-            didSet {
-                previousFrameIndex = oldValue
-            }
+            didSet { previousFrameIndex = oldValue }
         }
-        var previousFrameIndex = 0 {
-            didSet {
-                self.updatePreloadedFrames()
-            }
+        private var previousFrameIndex = 0 {
+            didSet { updatePreloadedFrames() }
         }
-        
         private var currentRepeatCount: Int = 0
-        private var playingTask: Task<Void, Never>?
         private var isStopped: Bool = false
+        private var playingTask: Task<Void, Never>?
         
         // Preload & cache (very light)
         private let preloadCount: Int
+        private var isFinished: Bool = false
         private var frameCache: [Int: CGImage] = [:]
         
-        
-        var isFinished: Bool = false
-        
         var needsPrescaling = true
+        
         weak var delegate: AnimatorDelegate?
         
-        // Total duration of one animation loop
-        var loopDuration: TimeInterval = 0
-        
-        // Current active frame image
-        var currentFrameImage: UIImage? {
-            return frame(at: currentFrameIndex)
-        }
-        
-        // Current active frame duration
-        var currentFrameDuration: TimeInterval {
-            return duration(at: currentFrameIndex)
-        }
-        
+        // Computed
         var isReachMaxRepeatCount: Bool {
             switch repeatMode {
             case .once:
                 return currentRepeatCount >= 1
-            case .finite(let maxCount):
-                return currentRepeatCount >= maxCount
+            case .finite(let n):
+                return currentRepeatCount >= n
             case .infinite:
                 return false
             }
@@ -121,7 +101,17 @@ extension DZAnimatedImageUIView {
         }
         
         var preloadingIsNeeded: Bool {
-            return maxFrameCount < frameCount - 1
+            return (preloadCount > 0 && preloadCount < frameCount - 1)
+        }
+        
+        // Current active frame image
+        var currentFrameImage: UIImage? {
+            return frame(at: currentFrameIndex)
+        }
+        
+        // Current active frame duration
+        var currentFrameDuration: TimeInterval {
+            return duration(at: currentFrameIndex)
         }
         
         private lazy var preloadQueue: DispatchQueue = {
@@ -136,7 +126,9 @@ extension DZAnimatedImageUIView {
         ///   - size: Size of the `AnimatedImageView`.
         ///   - count: Count of frames needed to be preloaded.
         ///   - repeatCount: The repeat count should this animator uses.
-        init(imageSourceBox sourceBox: ImageSourceBox, contentMode mode: UIView.ContentMode = .scaleToFill,
+        init(imageSourceBox sourceBox: ImageSourceBox,
+             screenScale: CGFloat = 2.0,
+             contentMode mode: UIView.ContentMode = .scaleToFill,
              size: CGSize,
              framePreloadCount count: Int,
              repeatMode: RepeatMode) {
@@ -148,8 +140,10 @@ extension DZAnimatedImageUIView {
             self.frameCount = CGImageSourceGetCount(sourceBox.raw)
             self.loopCountFromMeta = Animator.readLoopCount(from: sourceBox.raw) ?? 0
             self.maxFrameCount = 10
+            self.screenScale = screenScale
         }
         
+        // MARK: - public API
         func start(onFrame: @escaping @MainActor @Sendable (_ image: CGImage, _ duration: TimeInterval) -> Void,
                    onLoop: @escaping @MainActor @Sendable (_ count: Int) -> Void) {
             guard playingTask == nil, frameCount > 0 else {
@@ -337,7 +331,16 @@ extension DZAnimatedImageUIView {
         internal func loadFrame(at index: Int) -> UIImage? {
             let imageSource = self.imageSourceBox.raw
             let maxPoint = max(size.width, size.height)
-            let maxPixel = max(1, Int(maxPoint * 2.0)) // 粗略用 2.0 当作 scale；更精确可从外部传入屏幕 scale
+            let maxPixel = max(1, Int(maxPoint * screenScale))
+            var frameMaxPixel: Int = maxPixel
+            
+            if let props = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] {
+                let w = (props[kCGImagePropertyPixelWidth]  as? NSNumber)?.intValue ?? 0
+                let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+                if w > 0, h > 0 {
+                    frameMaxPixel = min(maxPixel, max(w, h)) // 只下采样，不上采样
+                }
+            }
             let scaledImage: UIImage
             if needsPrescaling, size != .zero {
                 let opts: [CFString: Any] = [

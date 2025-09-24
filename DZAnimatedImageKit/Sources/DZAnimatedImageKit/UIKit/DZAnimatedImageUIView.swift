@@ -107,7 +107,9 @@ public final class DZAnimatedImageUIView: UIView {
                         self?.showDownloadProgress(precent: p)
                     }
                 })
+                let scale = UIScreen.main.scale
                 let a = Animator(imageSourceBox: box,
+                                 screenScale: scale,
                                  contentMode: self.contentMode,
                                  size: self.bounds.isEmpty ? CGSize(width: 1, height: 1) : self.bounds.size,
                                  framePreloadCount: 6,
