@@ -114,10 +114,6 @@ extension DZAnimatedImageUIView {
             return duration(at: currentFrameIndex)
         }
         
-        private lazy var preloadQueue: DispatchQueue = {
-            return DispatchQueue(label: "cn.darkzero.DarkEggKit.AImageView.preloadQueue")
-        }()
-        
         /// Creates an animator with image source reference.
         ///
         /// - Parameters:
@@ -167,6 +163,41 @@ extension DZAnimatedImageUIView {
             }
         }
         
+        func prepareFramesAsynchronously() {
+            setupAnimatedFrames()
+        }
+        
+        /// Setup animation frames
+        /// Only fill duration at first
+        /// Not decode frame image
+        private func setupAnimatedFrames() {
+            self.resetAnimatedFrames()
+            let imageSource = self.imageSourceBox.raw
+            frameCount = Int(CGImageSourceGetCount(imageSource))
+            if frameCount <= 1 {
+                self.repeatMode = .once
+            }
+            var totalDuration: TimeInterval = 0
+            animatedFrames.reserveCapacity(frameCount)
+            (0 ..< frameCount).forEach { index in
+                let frameDuration = AnimatedImageFrames.getFrameDuration(from: imageSource, at: index)
+                totalDuration += min(frameDuration, maxTimeStep)
+                animatedFrames.append(AnimatedFrame(image: nil, duration: frameDuration))
+            }
+            self.loopDuration = totalDuration
+            primeInitialWindow()
+        }
+        
+        // reset all frames and properties
+        private func resetAnimatedFrames() {
+            animatedFrames.removeAll(keepingCapacity: false)
+            frameCount = 0
+            currentFrameIndex = 0
+            previousFrameIndex = 0
+            currentRepeatCount = 0
+            isFinished = false
+        }
+        
         func stop() {
             isStopped = true
             playingTask?.cancel()
@@ -174,22 +205,57 @@ extension DZAnimatedImageUIView {
             frameCache.removeAll()
         }
         
-        func frame(at index: Int) -> UIImage? {
-            return animatedFrames[safe: index]?.image
-        }
-        
         // MARK: - Frame decode & timing
         private func decodeFrame(at index: Int) -> (CGImage, TimeInterval)? {
-            if let cached = frameCache[index] {
-                return (cached, frameDurationAt(index: index))
+            if let cached = animatedFrames[safe: index]?.image?.cgImage {
+                return (cached, duration(at: index))
             }
-            let imageSource = self.imageSourceBox.raw
-            guard let cg = CGImageSourceCreateImageAtIndex(imageSource, index, imageCreateOptions()) else {
+            guard let ui = loadFrame(at: index), let cg = ui.cgImage else {
                 return nil
             }
-            frameCache[index] = cg
-            trimCacheIfNeeded(keepingAround: index)
-            return (cg, frameDurationAt(index: index))
+            animatedFrames[index] = animatedFrames[index].makeAnimatedFrame(image: ui)
+            return (cg, duration(at: index))
+        }
+        
+        /// Downsample according to display size + screen scale
+        /// fall back to original size if it fails
+        internal func loadFrame(at index: Int) -> UIImage? {
+            let imageSource = self.imageSourceBox.raw
+            let targetMaxPixel = max(1, Int(ceil(max(size.width, size.height) * screenScale)))
+            var frameMaxPixel = targetMaxPixel
+            if let props = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] {
+                let w = (props[kCGImagePropertyPixelWidth]  as? NSNumber)?.intValue ?? 0
+                let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+                if w > 0, h > 0 {
+                    frameMaxPixel = min(targetMaxPixel, max(w, h)) // 只下采样，不上采样
+                }
+            }
+
+            if needsPrescaling, size != .zero {
+                let opts: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                    kCGImageSourceThumbnailMaxPixelSize: frameMaxPixel,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true
+                ]
+                if let thumb = CGImageSourceCreateThumbnailAtIndex(imageSource, index, opts as CFDictionary) {
+                    return UIImage(cgImage: thumb, scale: screenScale, orientation: .up)
+                }
+            }
+
+            // if can not scale to small, return original image
+            guard let cg = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
+                return nil
+            }
+            return UIImage(cgImage: cg, scale: screenScale, orientation: .up)
+        }
+        
+        private func advanceFrameIndex() {
+            currentFrameIndex = increment(frameIndex: currentFrameIndex)
+        }
+        
+        private func increment(frameIndex: Int, by value: Int = 1) -> Int {
+            return (frameIndex + value) % frameCount
         }
         
         // Scale/Thumbnail
@@ -216,17 +282,13 @@ extension DZAnimatedImageUIView {
             return max(raw, minFrame)
         }
         
-        private func advanceFrameIndex() {
-            currentFrameIndex = (currentFrameIndex + 1) % frameCount
-        }
-        
         private func advanceFrameIndexAndLoopIfNeeded(onLoop: @MainActor @Sendable (_ count: Int) -> Void) async {
             let wasLast = (currentFrameIndex == frameCount - 1)
             advanceFrameIndex()
             if wasLast {
                 currentRepeatCount += 1
-                let loopCount = currentRepeatCount
-                await onLoop(loopCount)
+                let loopCount = currentRepeatCount // 先在 actor 内捕获
+                await onLoop(loopCount)            // 再跳到主线程
                 if shouldStopAfterCurrentLoop() {
                     isStopped = true
                 }
@@ -238,7 +300,6 @@ extension DZAnimatedImageUIView {
             case .infinite:
                 return false
             case .finite(let want):
-                // 如果文件内含 loop 元数据（如 APNG/GIF 的 LoopCount），按更严格者限制
                 if loopCountFromMeta > 0 {
                     return currentRepeatCount >= min(Int(want), loopCountFromMeta)
                 } else {
@@ -246,6 +307,22 @@ extension DZAnimatedImageUIView {
                 }
             case .once:
                 return currentRepeatCount >= 1
+            }
+        }
+        
+        // MARK: - Preload window
+        private func primeInitialWindow() {
+            // current frame
+            if animatedFrames[currentFrameIndex].isPlaceholder,
+               let ui = loadFrame(at: currentFrameIndex) {
+                animatedFrames[currentFrameIndex] = animatedFrames[currentFrameIndex].makeAnimatedFrame(image: ui)
+            }
+            // preload frames
+            for idx in preloadIndexes(start: currentFrameIndex) {
+                if animatedFrames[idx].isPlaceholder,
+                   let ui = loadFrame(at: idx) {
+                    animatedFrames[idx] = animatedFrames[idx].makeAnimatedFrame(image: ui)
+                }
             }
         }
         
@@ -272,131 +349,33 @@ extension DZAnimatedImageUIView {
             return nil
         }
         
-        
+        // MARK: - Frame accessors
+        func frame(at index: Int) -> UIImage? {
+            return animatedFrames[safe: index]?.image
+        }
         
         func duration(at index: Int) -> TimeInterval {
             return animatedFrames[safe: index]?.duration  ?? .infinity
-        }
-        
-        func prepareFramesAsynchronously() {
-            let imageSource = self.imageSourceBox.raw
-            frameCount = Int(CGImageSourceGetCount(imageSource))
-            animatedFrames.reserveCapacity(frameCount)
-            // if only 1 frame, set repeat mode to .once
-            if frameCount <= 1 {
-                self.repeatMode = .once
-            }
-            // load frames
-            if self.repeatMode == .infinite {
-                self.setupAnimatedFrames()
-//                preloadQueue.async { [weak self] in
-//                    self?.setupAnimatedFrames()
-//                }
-            }
-            else {
-                self.setupAnimatedFrames()
-            }
-        }
-        
-        func shouldChangeFrame(with duration: CFTimeInterval, handler: (Bool) -> Void) {
-            incrementTimeSinceLastFrameChange(with: duration)
-            if currentFrameDuration > timeSinceLastFrameChange {
-                handler(false)
-            } else {
-                resetTimeSinceLastFrameChange()
-                incrementCurrentFrameIndex()
-                handler(true)
-            }
-        }
-        
-        private func setupAnimatedFrames() {
-            self.resetAnimatedFrames()
-            var duration: TimeInterval = 0
-            let imageSource = self.imageSourceBox.raw
-            (0..<frameCount).forEach { index in
-                let frameDuration = AnimatedImageFrames.getFrameDuration(from: imageSource, at: index)
-                duration += min(frameDuration, maxTimeStep)
-                animatedFrames += [AnimatedFrame(image: nil, duration: frameDuration)]
-                if index > maxFrameCount { return }
-                animatedFrames[index] = animatedFrames[index].makeAnimatedFrame(image: loadFrame(at: index))
-            }
-            self.loopDuration = duration
-        }
-        
-        internal func resetAnimatedFrames() {
-            animatedFrames.removeAll()
-            animatedFrames = []
-        }
-        
-        internal func loadFrame(at index: Int) -> UIImage? {
-            let imageSource = self.imageSourceBox.raw
-            let maxPoint = max(size.width, size.height)
-            let maxPixel = max(1, Int(maxPoint * screenScale))
-            var frameMaxPixel: Int = maxPixel
-            
-            if let props = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] {
-                let w = (props[kCGImagePropertyPixelWidth]  as? NSNumber)?.intValue ?? 0
-                let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
-                if w > 0, h > 0 {
-                    frameMaxPixel = min(maxPixel, max(w, h)) // 只下采样，不上采样
-                }
-            }
-            let scaledImage: UIImage
-            if needsPrescaling, size != .zero {
-                let opts: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true
-                ]
-                if let thumb = CGImageSourceCreateThumbnailAtIndex(imageSource, index, opts as CFDictionary) {
-                    return UIImage(cgImage: thumb)
-                }
-            }
-            guard let cg = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
-                return nil
-            }
-            return UIImage(cgImage: cg)
         }
         
         private func updatePreloadedFrames() {
             guard preloadingIsNeeded else {
                 return
             }
-            animatedFrames[previousFrameIndex] = animatedFrames[previousFrameIndex].placeholderFrame
-            preloadIndexes(start: currentFrameIndex).forEach { index in
-                let currentAnimatedFrame = animatedFrames[index]
-                if !currentAnimatedFrame.isPlaceholder { return }
-                animatedFrames[index] = currentAnimatedFrame.makeAnimatedFrame(image: loadFrame(at: index))
-            }
-        }
-        
-        private func incrementCurrentFrameIndex() {
-            if isReachMaxRepeatCount && isLastFrame {
-                isFinished = true
-            } else if currentFrameIndex == 0 {
-                currentRepeatCount += 1
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    //await self.delegate?.animator(self, didPlayAnimationLoops: self.currentRepeatCount)
+            let window = Set(preloadIndexes(start: currentFrameIndex) + [currentFrameIndex])
+            // remove framse out of window
+            for i in 0..<frameCount where !window.contains(i) {
+                if !animatedFrames[i].isPlaceholder {
+                    animatedFrames[i] = animatedFrames[i].placeholderFrame
                 }
-//                DispatchQueue.main.async { [weak self] _ in
-//                    self?.delegate?.animator(self!, didPlayAnimationLoops: self?.currentRepeatCount!)
-//                }
             }
-            currentFrameIndex = increment(frameIndex: currentFrameIndex)
-        }
-        
-        private func incrementTimeSinceLastFrameChange(with duration: TimeInterval) {
-            timeSinceLastFrameChange += min(maxTimeStep, duration)
-        }
-        
-        private func resetTimeSinceLastFrameChange() {
-            timeSinceLastFrameChange -= currentFrameDuration
-        }
-        
-        private func increment(frameIndex: Int, by value: Int = 1) -> Int {
-            return (frameIndex + value) % frameCount
+            // fill frames in window
+            for i in window {
+                if animatedFrames[i].isPlaceholder,
+                   let ui = loadFrame(at: i) {
+                    animatedFrames[i] = animatedFrames[i].makeAnimatedFrame(image: ui)
+                }
+            }
         }
         
         private func preloadIndexes(start index: Int) -> [Int] {
