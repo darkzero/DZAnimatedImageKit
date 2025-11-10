@@ -14,7 +14,7 @@ final class DZAnimatedImageViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var progress: Float = 0.0
     
-    private var animator: DZAnimatedImageUIView.Animator?
+    private var animator: Animator?
     private var loadTask: Task<Void, Never>?
 }
 
@@ -36,7 +36,7 @@ extension DZAnimatedImageViewModel {
                 })
 
                 // 构建 Animator（注意传 UIScreen.main.scale）
-                let a = DZAnimatedImageUIView.Animator(
+                let a = Animator(
                     imageSourceBox: box,
                     screenScale: UIScreen.main.scale,
                     contentMode: .scaleAspectFit,

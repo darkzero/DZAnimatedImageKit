@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class DZAnimatedImageProgressView: UIView {
+final class DZCircularProgressUIView: UIView {
     private var progressLayer: CAShapeLayer = CAShapeLayer()
     private let trackLayer: CAShapeLayer = CAShapeLayer()
     private var progressLbl: UILabel = UILabel()
@@ -81,7 +81,7 @@ final class DZAnimatedImageProgressView: UIView {
     }
 }
 
-extension DZAnimatedImageProgressView {
+extension DZCircularProgressUIView {
     /// setProgress
     /// - Parameters:
     ///   - value: progress value (Float/CGFloat/Double)
@@ -120,10 +120,10 @@ extension DZAnimatedImageProgressView {
     }
 }
 
-extension DZAnimatedImageProgressView {
-    class func addToView(_ view: UIView) -> DZAnimatedImageProgressView {
+extension DZCircularProgressUIView {
+    class func addToView(_ view: UIView) -> DZCircularProgressUIView {
         let frame = view.bounds
-        let progressView = DZAnimatedImageProgressView(frame: frame)
+        let progressView = DZCircularProgressUIView(frame: frame)
         progressView.backgroundColor = .clear
         view.addSubview(progressView)
         return progressView

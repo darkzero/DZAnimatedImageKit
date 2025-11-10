@@ -33,7 +33,7 @@ public struct AnimatedImage {
     public func load(onProgress: (@Sendable (Float) -> Void)? = nil) async throws -> ImageSourceBox {
         switch self.sourceType {
         case .remote(let url):
-            return try await AnimatedImagePipeline.shared.fetchRemote(key: url.absoluteString, url: url, onProgress: onProgress)
+            return try await AnimatedImagePipeline.shared.fetchRemote1(key: url.absoluteString, url: url, onProgress: onProgress)
         case .local(let fileUrl):
             return try LocalImageLoader.loadFromFile(url: fileUrl)
         }

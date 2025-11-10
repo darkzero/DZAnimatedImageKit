@@ -11,38 +11,6 @@ import ImageIO
 public actor AnimatedImagePipeline {
     public static let shared = AnimatedImagePipeline()
     private init() {}
-
-    public func fetchRemote1(key: String,
-                            url: URL,
-                            onProgress: (@Sendable (Float) -> Void)? = nil) async throws -> ImageSourceBox {
-        // 命中缓存（按你现有缓存接口替换）
-        if let cached = await _imgSrcCache.findSource(from: key) {
-            onProgress?(1.0)
-            return cached
-        }
-        // 直接复用你现有的异步下载 API
-        let (cancelToken, stream) = try await SourceDownloader.shared.downloadImageAsync(from: key)
-
-        // 任务被取消时，确保取消底层下载
-        return try await withTaskCancellationHandler(operation: {
-            for try await progress in stream {
-                try Task.checkCancellation()
-                if progress < 1.0 {
-                    onProgress?(progress)
-                } else {
-                    // 下载结束：从你的缓存里取增量/完整 CGImageSource
-                    if let box = await _imgSrcCache.findSource(from: key) {
-                        onProgress?(1.0)
-                        return box
-                    }
-                    throw URLError(.cannotCreateFile)
-                }
-            }
-            throw URLError(.cancelled)
-        }, onCancel: {
-            Task { await SourceDownloader.shared.cancelDownload(key, token: cancelToken) }
-        })
-    }
 }
 
 extension AnimatedImagePipeline {
@@ -87,5 +55,26 @@ extension AnimatedImagePipeline {
 
         onProgress?(1.0)
         return box
+    }
+    
+    public func fetchRemote1(key: String, url: URL, onProgress: (@Sendable (Float) -> Void)? = nil) async throws -> ImageSourceBox {
+        let (token, stream) = await try SourceDownloader.shared.downloadImageAsync(from: url.absoluteString)
+        do {
+            for try await ev in stream {
+                switch ev {
+                case .progress(let p):
+                    onProgress?(p)
+                case .completed(let box):
+                    // 可缓存：await _imgSrcCache.storeSource(box, for: key)
+                    return box
+                }
+            }
+            throw URLError(.cancelled)
+        } catch {
+            // 双保险：如果 stream 是因错误/取消结束，确保底层任务被取消
+            await SourceDownloader.shared.cancelDownload(url.absoluteString, token: token)
+            throw error
+        }
+
     }
 }

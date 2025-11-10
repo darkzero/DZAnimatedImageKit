@@ -6,14 +6,14 @@
 //
 
 import SwiftUI
+public enum DZProgressState: Equatable {
+    case determinate(CGFloat)   // 0...1
+    case indeterminate          // unkown
+}
 
 public struct DZCircularProgressView: View {
-    public enum ProgressState: Equatable {
-        case determinate(CGFloat)   // 0...1
-        case indeterminate          // unkown
-    }
     // MARK: - Public config
-    public var state: ProgressState
+    public var state: DZProgressState
     public var size: CGFloat = 64
     public var lineWidth: CGFloat = 6
     public var trackColor: Color = Color.primary.opacity(0.33)
@@ -30,7 +30,7 @@ public struct DZCircularProgressView: View {
     @State private var spinning = false
     
     public init(
-        state: ProgressState,
+        state: DZProgressState,
         size: CGFloat = 64,
         lineWidth: CGFloat = 6,
         trackColor: Color = Color.primary.opacity(0.33),

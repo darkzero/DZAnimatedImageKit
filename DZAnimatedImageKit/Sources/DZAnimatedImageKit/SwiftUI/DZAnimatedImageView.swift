@@ -7,35 +7,42 @@
 
 import SwiftUI
 
+public enum PlaceholderStyle {
+    case clear
+    case color(Color)
+    case image(Image)
+    case systemImage(String, Color)
+}
+
 // DZAnimatedImageView
-public struct DZAnimatedImageSView: View {
-    enum PlaceholderStyle {
-        case clear
-        case color(Color)
-        case image(UIImage)
-    }
-    
+public struct DZAnimatedImageView: View {
     private let animatedImage: AnimatedImage
-    private let placeholder: UIImage?
+    private let placeholder: PlaceholderStyle
     private let repeatMode: RepeatMode
     private let preloadCount: Int
+    
+    private let progressBuilder: @MainActor (DZProgressState, CGSize) -> AnyView
 
     @StateObject private var vm = DZAnimatedImageViewModel()
     @State private var didStart = false // flag
 
     public init(animatedImage: AnimatedImage,
-                placeHolder: UIImage? = nil,
+                placeHolder: PlaceholderStyle = .clear,
                 repeatMode: RepeatMode = .infinite,
-                preloadCount: Int = 6) {
+                preloadCount: Int = 6,
+                @ViewBuilder progressOverlay: @escaping @MainActor (_ state: DZProgressState, _ size: CGSize) -> some View = DZAnimatedImageView.circularProgressOverlay) {
         self.animatedImage = animatedImage
         self.repeatMode = repeatMode
         self.preloadCount = preloadCount
         self.placeholder = placeHolder
+        self.progressBuilder = { state, size in
+            AnyView(progressOverlay(state, size))
+        }
     }
 
     public var body: some View {
         GeometryReader { geo in
-            ZStack {
+            ZStack(alignment: .center) {
                 // 当前帧
                 if let cg = vm.currentCg {
                     Image(decorative: cg, scale: UIScreen.main.scale, orientation: .up)
@@ -45,28 +52,15 @@ public struct DZAnimatedImageSView: View {
                         .clipShape(Rectangle())
                         .transition(.opacity)
                 } else {
-                    if let p = self.placeholder {
-                        Image(uiImage: p)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipShape(Rectangle())
-                            .transition(.opacity)
-                    }
-                    else {
-                        Color.clear
-                    }
+                    PlaceholderView(placeholder: self.placeholder)
+                        .frame(width: geo.size.width, height: geo.size.height)
                 }
                 
                 // progress
                 if vm.isLoading {
-                    let progressState: DZCircularProgressView.ProgressState = (vm.progress > 0 && vm.progress < 1) ? .determinate(CGFloat(vm.progress)) : .indeterminate
+                    let progressState: DZProgressState = (vm.progress > 0 && vm.progress < 1) ? .determinate(CGFloat(vm.progress)) : .indeterminate
                     VStack(alignment: .center) {
-                        DZCircularProgressView(
-                            state: progressState,
-                            size: 64,
-                            lineWidth: 7
-                        )
+                        progressBuilder(progressState, CGSize(width: 64, height: 64))
                     }
                     .transition(.opacity)
                 }
@@ -97,5 +91,43 @@ public struct DZAnimatedImageSView: View {
         let pxH = Int(size.height * scale)
         print("key: \(animatedImage.key)")
         return "\(animatedImage.key)"
+    }
+    
+    private struct PlaceholderView: View {
+        let placeholder: PlaceholderStyle
+        @ViewBuilder
+        public var body: some View {
+            switch placeholder {
+            case .clear:
+                Color.clear
+            case .color(let color):
+                color
+            case .image(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+            case .systemImage(let sysName, let tint):
+                Image(systemName: sysName)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundColor(tint)
+                    .padding()
+            }
+        }
+    }
+}
+
+extension DZAnimatedImageView {
+    @MainActor @ViewBuilder
+    public static func circularProgressOverlay(_ state: DZProgressState, _ size: CGSize) -> some View {
+        let s: CGFloat = min(size.width, size.height) * 0.4
+        VStack(alignment: .center) {
+            DZCircularProgressView(
+                state: state,
+                size: max(s, 64.0),
+                lineWidth: 7
+            )
+        }
+        .transition(.opacity)
     }
 }

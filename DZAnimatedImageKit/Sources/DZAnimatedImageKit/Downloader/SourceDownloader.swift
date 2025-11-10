@@ -10,8 +10,12 @@ import ImageIO
 
 let _imgSrcCache = DefaultImageSourceCache()
 
+public enum DownloadEvent: Sendable {
+    case progress(Float)              // 0...1
+    case completed(ImageSourceBox)    // download success
+}
+
 actor SourceDownloader {
-    //internal static let `default` = SourceDownloader(name: "default")
     public static let shared = SourceDownloader(name: "default")
     internal var sessionTasks: [String: SessionDataTask] = [:]
     private let name: String
@@ -45,35 +49,42 @@ extension SourceDownloader {
     /// 异步版本
     /// - Parameter url: 图片Url
     /// - Returns: 包含进度和结果的数据流
-    internal func downloadImageAsync(from url: String) async throws -> (SessionDataTask.CancelToken, AsyncThrowingStream<Float, Error>) {
+    internal func downloadImageAsync(from url: String) async throws -> (SessionDataTask.CancelToken, AsyncThrowingStream<DownloadEvent, Error>) {
         var cancelToken: SessionDataTask.CancelToken = -1
-        let stream = AsyncThrowingStream { continuation in
-            cancelToken = self.downloadImage(from: url) { result in
+        let stream = AsyncThrowingStream<DownloadEvent, Error>(bufferingPolicy: .bufferingNewest(32)) { continuation in
+            let token = self.downloadImage(from: url) { result in
                 switch result {
-                case .success(let source):
-                    // 成功时，发送 1.0 的进度，然后将 CGImageSource 封装并结束数据流
-                    continuation.yield(1.0)
-                    let imageBox = ImageSourceBox(raw: source)
-                    continuation.finish(throwing: nil)
-                case .failure:
-                    // 失败时，抛出错误并结束数据流
-                    continuation.finish(throwing: URLError(.cannotFindHost))
+                case .successData(let source):              // 这里按你的真实 DownloadResult 改
+                    let box = ImageSourceBox(raw: source)
+                    _ = continuation.yield(.progress(1.0))
+                    _ = continuation.yield(.completed(box))
+                    continuation.finish()
+                case .successFile(let url):
+                    // TODO:
+                    break
+                case .failure: //(let error):
+                    //continuation.finish(throwing: error)
+                    continuation.finish()
                 }
             } progress: { p in
-                // 收到进度更新时，发送进度值
-                continuation.yield(p)
+                _ = continuation.yield(.progress(p))
+            }
+            cancelToken = token
+            continuation.onTermination = { @Sendable _ in
+                if token != -1 {
+                    Task {
+                        await self.cancelDownload(url, token: token)
+                    }
+                }
             }
         }
-        
+
         return (cancelToken, stream)
     }
     
     internal func cancelDownload(_ url: String, token: SessionDataTask.CancelToken) {
         if let task = self.sessionTasks[url] {
-            task.cancel(token: token)
-//            if !task.containsCallbacks {
-//                let sessionTask = self.sessionTasks.data
-//            }
+            task.cancel()
         }
     }
     

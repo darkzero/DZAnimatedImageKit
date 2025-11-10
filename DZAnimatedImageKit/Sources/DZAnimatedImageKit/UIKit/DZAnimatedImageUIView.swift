@@ -55,9 +55,7 @@ public final class DZAnimatedImageUIView: UIView {
     private var animator: Animator?
     private var isAnimating: Bool = false
     private var loadTask: Task<Void, Never>?
-    private var progressView: DZAnimatedImageProgressView?
-    //private var progressLayer = CAShapeLayer()
-    //
+    private var progressView: DZCircularProgressUIView?
     private let logger: Logger = .init(subsystem: "cn.darkzero.DZAnimatedImageKit", category: "DZAnimatedImageUIView")
     
     public override class var layerClass: AnyClass { CALayer.self }
@@ -73,7 +71,7 @@ public final class DZAnimatedImageUIView: UIView {
     
     private func commonInit() {
         layer.contentsGravity = .resizeAspect
-        self.progressView = DZAnimatedImageProgressView.addToView(self)
+        self.progressView = DZCircularProgressUIView.addToView(self)
         self.progressView?.isHidden = true
     }
     
@@ -213,6 +211,13 @@ extension DZAnimatedImageUIView {
     
     internal func showDownloadProgress(precent: Float) {
         self.progressView?.setProgress(precent)
+    }
+}
+
+extension DZAnimatedImageUIView: AnimatorDelegate {
+    @MainActor
+    func animator(_ animator: Animator, didPlayAnimationLoops count: UInt) {
+        delegate?.animatedImageView(self, didPlayAnimationLoops: count)
     }
 }
 
