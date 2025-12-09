@@ -86,10 +86,9 @@ public struct DZAnimatedImageView: View {
     
     private func startKey(animatedImage: AnimatedImage, size: CGSize, mode: RepeatMode) -> String {
         let scale = UIScreen.main.scale
-        // 转为像素并取整，避免 200.0 → 199.6667 这类微抖
+        // 转为像素并取整
         let pxW = Int(size.width * scale)
         let pxH = Int(size.height * scale)
-        print("key: \(animatedImage.key)")
         return "\(animatedImage.key)"
     }
     

@@ -91,8 +91,8 @@ extension SourceDownloader {
     /// Release task of url
     /// - Parameter url: url
     internal func releaseTask(url: String) {
-        self.sessionTasks[url]?.sessionDataTask?.cancel()
-        self.sessionTasks[url]?.sessionDataTask = nil
-        self.sessionTasks[url] = nil
+//        self.sessionTasks[url]?.sessionDataTask?.cancel()
+//        self.sessionTasks[url]?.sessionDataTask = nil
+//        self.sessionTasks[url] = nil
     }
 }

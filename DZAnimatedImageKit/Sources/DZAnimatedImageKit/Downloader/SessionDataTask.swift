@@ -9,6 +9,18 @@ import ImageIO
 import Foundation
 import ObjectiveC
 
+protocol SessionTaskProtcol {
+    func start()
+    func pause()
+    func stop()
+}
+
+extension SessionTaskProtcol {
+    func start() {}
+    func pause() {}
+    func stop() {}
+}
+
 enum DownloadResult {
     case successData(_ source: CGImageSource)
     case successFile(_ url: URL)
@@ -25,7 +37,7 @@ public final class SessionDataTask: NSObject {
     // MARK: - private state
     private let urlString: String
     private let urlSession: URLSession
-    private var downloadTask: URLSessionDataTask?
+    private var downloadTask: URLSessionDataTask? // URLSessionTask? //
     private var resumeData: Data?
     private var isRunning: Bool = false
     private let q = DispatchQueue(label: "com.yourco.sessiondatatask.state")
@@ -35,15 +47,13 @@ public final class SessionDataTask: NSObject {
     // callback map
     private var nextToken: CancelToken = 1
     private var callbacks: [CancelToken: TaskCallback] = [:]
-    
-    
-    
+
     // for async
     private var incrementalImgSrc: CGImageSource = CGImageSourceCreateIncremental(nil)
     var recievedData = Data()
     var expectedLeght: Int64 = 0
     
-    internal var sessionDataTask: URLSessionDataTask?
+    // internal var sessionDataTask: URLSessionDataTask?
     private var started: Bool = false
     
     private let lock = NSLock()
@@ -119,9 +129,6 @@ extension SessionDataTask {
             observation = task.progress.observe(\.fractionCompleted) { [weak self] prog, _ in
                 self?.notifyProgress(Float(prog.fractionCompleted))
             }
-//            let task = urlSession.downloadTask(with: url) { [weak self] tmpURL, resp, error in
-//                self?.handleCompletion(tmpURL: tmpURL, error: error)
-//            }
             downloadTask = task
             isRunning = true
             task.resume()
@@ -129,33 +136,42 @@ extension SessionDataTask {
     }
     
     /// if resumeData not nil, resume
-    func resumeIfPossible() {
-        q.sync {
-            guard !isRunning else { return }
-            guard let blob = resumeData else {
-                start()
-                return
-            }
-            let task = urlSession.downloadTask(withResumeData: blob) { [weak self] tmpURL, resp, error in
-                self?.handleCompletion(tmpURL: tmpURL, error: error)
-            }
-            downloadTask = task
-            isRunning = true
-            task.resume()
-        }
-    }
+//    func resumeIfPossible() {
+//        q.sync {
+//            guard !isRunning else { return }
+//            guard let blob = resumeData else {
+//                start()
+//                return
+//            }
+//            let task = urlSession.downloadTask(withResumeData: blob) { [weak self] tmpURL, resp, error in
+//                self?.handleCompletion(tmpURL: tmpURL, error: error)
+//            }
+//            downloadTask = task
+//            isRunning = true
+//            task.resume()
+//        }
+//    }
     
     func pauseForBackground() {
         q.sync {
             guard let task = downloadTask, isRunning else { return }
             isRunning = false
             // 生成 resumeData：完成后即可回前台恢复
-            task.cancel(byProducingResumeData: { [weak self] data in
-                self?.q.async {
-                    self?.resumeData = data
-                    self?.downloadTask = nil
-                }
-            })
+            if let t = task as? URLSessionDownloadTask {
+                t.cancel(byProducingResumeData: { [weak self] data in
+                    self?.q.async {
+                        self?.resumeData = data
+                        self?.downloadTask = nil
+                    }
+                })
+                
+            }
+//            task.cancel(byProducingResumeData: { [weak self] data in
+//                self?.q.async {
+//                    self?.resumeData = data
+//                    self?.downloadTask = nil
+//                }
+//            })
         }
     }
     
@@ -215,78 +231,3 @@ extension SessionDataTask {
         }
     }
 }
-
-//extension SessionDataTask: URLSessionDownloadDelegate {
-//    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-//        //
-//    }
-//    
-//    public func urlSession(_ session: URLSession,
-//                           downloadTask: URLSessionDownloadTask,
-//                           didWriteData bytesWritten: Int64,
-//                           totalBytesWritten: Int64,
-//                           totalBytesExpectedToWrite: Int64) {
-//        guard totalBytesExpectedToWrite > 0 else { return }
-//        let p = Float(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
-//        notifyProgress(p)
-//    }
-//}
-
-
-//// MARK: - URLSessionDataDelegate
-//extension SessionDataTask: URLSessionDataDelegate {
-//    internal func loadImageAsync(from url: String) -> URLSessionDataTask? {
-//        if let url = URL(string: url) {
-//            let session = URLSession(configuration: URLSessionConfiguration.ephemeral, delegate: self, delegateQueue: OperationQueue())
-//            session.configuration.timeoutIntervalForRequest = 15
-//            let urlRequest = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-//            let sessionTask = session.dataTask(with: urlRequest)
-//            return sessionTask
-//        }
-//        return nil
-//    }
-//    
-//    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
-//                           didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-//        completionHandler(.allow)
-//        self.expectedLeght = response.expectedContentLength
-//        //Logger.debug("_expectedLeght: ", expectedLeght);
-//    }
-//    
-//    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-//        recievedData.append(data)
-//        let isloadFinish = (self.expectedLeght == self.recievedData.count)
-//        if isloadFinish {
-//            CGImageSourceUpdateData(incrementalImgSrc, self.recievedData as CFData, isloadFinish)
-//            self.onUrlSessionLoadEnd(source: incrementalImgSrc)
-//            self.recievedData = Data()
-//            session.invalidateAndCancel()
-//            dataTask.cancel()
-//        }
-//        else {
-//            let per = Float(self.recievedData.count)/Float(self.expectedLeght)
-//            self.onUrlSessionLoaded(percent: per)
-//        }
-//    }
-//}
-//
-//// MARK: -
-////extension SessionDataTask {
-////    private func onUrlSessionLoadEnd(source: CGImageSource?) {
-////        for tcb in self.callbacks {
-////            if let src = source {
-////                tcb.value.onCompleted?(.success(src))
-////            }
-////            else {
-////                tcb.value.onCompleted?(.failure)
-////            }
-////        }
-////        self.cancelAll()
-////    }
-////    
-////    private func onUrlSessionLoaded(percent: Float = 0) {
-////        for tcb in self.callbacks {
-////            tcb.value.onProgress?(percent)
-////        }
-////    }
-////}
