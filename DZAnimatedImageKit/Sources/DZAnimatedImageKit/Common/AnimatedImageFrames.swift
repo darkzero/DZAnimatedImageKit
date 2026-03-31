@@ -10,33 +10,34 @@ import ImageIO
 
 enum AnimatedImageFrames {
     internal static func getFrameDuration(from imageSource: CGImageSource, at idx: Int) -> TimeInterval {
-        guard let property = CGImageSourceCopyPropertiesAtIndex(imageSource, idx, nil) as? [String: Any] else {
-            return 0.0
-        }
-        let defaultDuration: TimeInterval = 1.0/60.0
-        var aniInfo: [String: Any]?
-        
-        if property[kCGImagePropertyGIFDictionary as String] as? [String: Any] != nil {         // gif
-            aniInfo = property[kCGImagePropertyGIFDictionary as String] as? [String: Any]
-        }
-        else if property[kCGImagePropertyPNGDictionary as String] as? [String: Any] != nil {    // png
-            aniInfo = property[kCGImagePropertyPNGDictionary as String] as? [String: Any]
-        }
-        else {
+        let defaultDuration: TimeInterval = 1.0 / 60.0
+        guard let property = CGImageSourceCopyPropertiesAtIndex(imageSource, idx, nil) as? [CFString: Any] else {
             return defaultDuration
         }
-        
-        guard let gifInfo = aniInfo else {
-            return defaultDuration
+
+        // GIF: use GIF delay keys.
+        if let gifInfo = property[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+            let unclampedDelayTime = gifInfo[kCGImagePropertyGIFUnclampedDelayTime] as? NSNumber
+            let delayTime = gifInfo[kCGImagePropertyGIFDelayTime] as? NSNumber
+            let duration = unclampedDelayTime ?? delayTime
+            guard let frameDuration = duration else {
+                return defaultDuration
+            }
+            return max(frameDuration.doubleValue, defaultDuration)
         }
-        
-        let unclampedDelayTime = gifInfo[kCGImagePropertyGIFUnclampedDelayTime as String] as? NSNumber
-        let delayTime = gifInfo[kCGImagePropertyGIFDelayTime as String] as? NSNumber
-        let duration = unclampedDelayTime ?? delayTime
-        
-        guard let frameDuration = duration else {
-            return defaultDuration
+
+        // APNG: use APNG delay keys under PNG dictionary.
+        if let apngInfo = property[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
+            let unclampedDelayTime = apngInfo[kCGImagePropertyAPNGUnclampedDelayTime] as? NSNumber
+            let delayTime = apngInfo[kCGImagePropertyAPNGDelayTime] as? NSNumber
+            let duration = unclampedDelayTime ?? delayTime
+            guard let frameDuration = duration else {
+                return defaultDuration
+            }
+            return max(frameDuration.doubleValue, defaultDuration)
         }
-        return max(frameDuration.doubleValue, defaultDuration)
+
+        // Unknown animated format: fallback.
+        return defaultDuration
     }
 }

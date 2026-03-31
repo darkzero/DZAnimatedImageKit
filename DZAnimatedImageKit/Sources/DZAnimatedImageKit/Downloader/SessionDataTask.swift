@@ -97,6 +97,10 @@ extension SessionDataTask {
             callbacks[token] = nil
         }
     }
+
+    func callbackCount() -> Int {
+        return q.sync { callbacks.count }
+    }
     
     /// start or no resume data
     func start() {

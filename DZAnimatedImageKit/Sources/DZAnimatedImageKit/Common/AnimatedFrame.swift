@@ -5,12 +5,13 @@
 //  Created by Yuhua Hu on 2025/9/28.
 //
 
-import UIKit
+import CoreGraphics
+import Foundation
 
 /// Represents a single frame in a GIF/APNG
 struct AnimatedFrame {
     // The image to display for this frame. Its value is nil when the frame is removed from the buffer.
-    let image: UIImage?
+    let image: CGImage?
     // The duration that this frame should remain active.
     let duration: TimeInterval
     // A placeholder frame with no image assigned.
@@ -23,9 +24,9 @@ struct AnimatedFrame {
         return image == nil
     }
     // Returns a new instance from an optional image.
-    // - parameter image: An optional `UIImage` instance to be assigned to the new frame.
+    // - parameter image: An optional `CGImage` instance to be assigned to the new frame.
     // - returns: An `AnimatedFrame` instance.
-    func makeAnimatedFrame(image: UIImage?) -> AnimatedFrame {
+    func makeAnimatedFrame(image: CGImage?) -> AnimatedFrame {
         return AnimatedFrame(image: image, duration: duration)
     }
 }

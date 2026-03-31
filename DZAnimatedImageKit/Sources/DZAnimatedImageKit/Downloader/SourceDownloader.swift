@@ -31,7 +31,14 @@ extension SourceDownloader {
     internal func downloadImage(from url: String,
                                 completion: @escaping ((DownloadResult) -> Void),
                                 progress: ((Float) -> Void)? = nil) -> SessionDataTask.CancelToken {
-        let taskCallback = SessionDataTask.TaskCallback(onCompleted: completion, onProgress: progress)
+        // Wrap completion so task lifecycle is released once download finishes.
+        let wrappedCompletion: (DownloadResult) -> Void = { [weak self] result in
+            completion(result)
+            Task { [weak self, url] in
+                await self?.releaseTask(url: url)
+            }
+        }
+        let taskCallback = SessionDataTask.TaskCallback(onCompleted: wrappedCompletion, onProgress: progress)
         
         if let task = self.sessionTasks[url] {
             let cancelToken = task.addCallback(taskCallback)
@@ -72,7 +79,7 @@ extension SourceDownloader {
             cancelToken = token
             continuation.onTermination = { @Sendable _ in
                 if token != -1 {
-                    Task {
+                    Task { [self, url, token] in
                         await self.cancelDownload(url, token: token)
                     }
                 }
@@ -84,15 +91,17 @@ extension SourceDownloader {
     
     internal func cancelDownload(_ url: String, token: SessionDataTask.CancelToken) {
         if let task = self.sessionTasks[url] {
-            task.cancel()
+            task.removeCallback(token)
+            if task.callbackCount() == 0 {
+                task.cancel()
+                self.sessionTasks[url] = nil
+            }
         }
     }
     
     /// Release task of url
     /// - Parameter url: url
     internal func releaseTask(url: String) {
-//        self.sessionTasks[url]?.sessionDataTask?.cancel()
-//        self.sessionTasks[url]?.sessionDataTask = nil
-//        self.sessionTasks[url] = nil
+        self.sessionTasks[url] = nil
     }
 }
