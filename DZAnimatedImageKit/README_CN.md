@@ -103,6 +103,20 @@ struct PlaylistView: View {
 }
 ```
 
+### 5. 监听已解码缓冲内存（SwiftUI）
+
+```swift
+@State private var decodedBytes = 0
+
+DZAnimatedImageView(
+    animatedImage: AnimatedImage(url: URL(string: "https://example.com/demo.gif")!),
+    preloadCount: 6,
+    onDecodedBufferChanged: { bytes in
+        decodedBytes = bytes
+    }
+)
+```
+
 ## UIKit
 
 导入库：
@@ -177,8 +191,11 @@ animatedView.reset()
   - `onLoop`：每次动画循环完成后触发。
   - `onFinished`：在 `.once` 或 `.finite(n)` 播放完成后触发。
   - `.infinite` 不会触发 `onFinished`。
+  - `onDecodedBufferChanged`：回调当前动画器已解码缓冲帧的内存字节数。
 - `repeatMode` 支持：
   - `.once`
   - `.finite(n)`
   - `.infinite`
 - `preloadCount` 用于控制预加载帧数量。
+- 实际预加载窗口会受内部上限保护：
+  - `effectivePreload = min(preloadCount, maxPreloadCap, frameCount - 1)`

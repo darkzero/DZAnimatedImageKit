@@ -1,8 +1,8 @@
 import Foundation
+import CoreGraphics
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
-import UIKit
 @testable import DZAnimatedImageKit
 
 struct DZAnimatedImageKitTests {
@@ -145,12 +145,22 @@ private extension DZAnimatedImageKitTests {
     }
 
     func make1x1CGImage() -> CGImage? {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
-        let image = renderer.image { ctx in
-            UIColor.systemBlue.setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
         }
-        return image.cgImage
+
+        context.setFillColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return context.makeImage()
     }
 }
 

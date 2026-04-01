@@ -103,6 +103,20 @@ struct PlaylistView: View {
 }
 ```
 
+### 5. Observe decoded buffer memory (SwiftUI)
+
+```swift
+@State private var decodedBytes = 0
+
+DZAnimatedImageView(
+    animatedImage: AnimatedImage(url: URL(string: "https://example.com/demo.gif")!),
+    preloadCount: 6,
+    onDecodedBufferChanged: { bytes in
+        decodedBytes = bytes
+    }
+)
+```
+
 ## UIKit
 
 Import package:
@@ -177,8 +191,11 @@ animatedView.reset()
   - `onLoop`: called after each completed animation loop.
   - `onFinished`: called when playback reaches the end in `.once` or `.finite(n)`.
   - `.infinite` never triggers `onFinished`.
+  - `onDecodedBufferChanged`: reports decoded frame-buffer bytes used by the animator.
 - `repeatMode` supports:
   - `.once`
   - `.finite(n)`
   - `.infinite`
 - `preloadCount` controls how many frames are prepared ahead.
+- The effective preload window is capped internally:
+  - `effectivePreload = min(preloadCount, maxPreloadCap, frameCount - 1)`

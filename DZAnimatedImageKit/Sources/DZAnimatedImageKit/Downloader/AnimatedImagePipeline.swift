@@ -58,7 +58,7 @@ extension AnimatedImagePipeline {
     }
     
     public func fetchRemote1(key: String, url: URL, onProgress: (@Sendable (Float) -> Void)? = nil) async throws -> ImageSourceBox {
-        let (token, stream) = await try SourceDownloader.shared.downloadImageAsync(from: url.absoluteString)
+        let (token, stream) = try await SourceDownloader.shared.downloadImageAsync(from: url.absoluteString)
         do {
             for try await ev in stream {
                 switch ev {

@@ -103,6 +103,20 @@ struct PlaylistView: View {
 }
 ```
 
+### 5. デコード済みバッファメモリを監視（SwiftUI）
+
+```swift
+@State private var decodedBytes = 0
+
+DZAnimatedImageView(
+    animatedImage: AnimatedImage(url: URL(string: "https://example.com/demo.gif")!),
+    preloadCount: 6,
+    onDecodedBufferChanged: { bytes in
+        decodedBytes = bytes
+    }
+)
+```
+
 ## UIKit
 
 インポート：
@@ -177,8 +191,11 @@ animatedView.reset()
   - `onLoop`：各ループの完了後に呼ばれます。
   - `onFinished`：`.once` または `.finite(n)` の再生完了時に呼ばれます。
   - `.infinite` では `onFinished` は呼ばれません。
+  - `onDecodedBufferChanged`：アニメーターが保持中のデコード済みバッファサイズ（bytes）を通知します。
 - `repeatMode` は以下をサポート：
   - `.once`
   - `.finite(n)`
   - `.infinite`
 - `preloadCount` は先読みするフレーム数を制御します。
+- 実際の先読み数は内部上限で制限されます：
+  - `effectivePreload = min(preloadCount, maxPreloadCap, frameCount - 1)`
