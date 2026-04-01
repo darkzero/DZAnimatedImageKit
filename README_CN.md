@@ -2,6 +2,19 @@
 
 一个用于 iOS 的动图展示库（`GIF/APNG`），同时支持 SwiftUI 和 UIKit。
 
+## 功能亮点
+
+- 提供 SwiftUI 与 UIKit 一致的回调语义（`onLoop` / `onFinished`）
+- 支持动画流程编排，例如当前动画结束后自动切换到下一段动图
+- 不只是播放器，也可作为业务动画编排的基础组件
+
+## 后续计划
+
+- 提供轻量 `Playlist/Sequence` API
+- 明确回调触发时机与线程保证
+- 增加自动 `preload` 与内存压力自适应策略
+- 增强播放可观测性（`buffer`、`FPS`、`dropped frames`）
+
 ## 环境要求
 
 - iOS 15+

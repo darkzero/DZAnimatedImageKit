@@ -2,6 +2,19 @@
 
 Animated image view library for iOS (`GIF/APNG`), with both SwiftUI and UIKit APIs.
 
+## Highlights
+
+- Provides consistent callback semantics across SwiftUI and UIKit (`onLoop` / `onFinished`)
+- Supports animation flow orchestration, such as switching to the next animated image after completion
+- Works as both an image player and a foundation for business-level animation sequencing
+
+## Roadmap
+
+- Add a lightweight `Playlist/Sequence` API
+- Clarify callback timing and threading guarantees
+- Add auto-`preload` with memory-pressure-aware adaptation
+- Improve playback observability (`buffer`, `FPS`, `dropped frames`)
+
 ## Requirements
 
 - iOS 15+
