@@ -1,19 +1,19 @@
 # DZAnimatedImageKit
 
-Animated image view library for iOS (`GIF/APNG`), with both SwiftUI and UIKit APIs.
+一个用于 iOS 的动图展示库（`GIF/APNG`），同时支持 SwiftUI 和 UIKit。
 
-## Requirements
+## 环境要求
 
 - iOS 15+
 - Swift 6.1+
 
-## Installation (Swift Package Manager)
+## 安装（Swift Package Manager）
 
-In Xcode:
+在 Xcode 中：
 
 1. `File` -> `Add Package Dependencies...`
-2. Select your repository URL
-3. Add product: `DZAnimatedImageKit`
+2. 选择你的仓库地址
+3. 添加产品：`DZAnimatedImageKit`
 
 ---
 
@@ -21,14 +21,14 @@ In Xcode:
 
 ## SwiftUI
 
-Import package:
+导入库：
 
 ```swift
 import SwiftUI
 import DZAnimatedImageKit
 ```
 
-### 1. Load remote animated image
+### 1. 加载远程动图
 
 ```swift
 struct DemoView: View {
@@ -44,7 +44,7 @@ struct DemoView: View {
 }
 ```
 
-### 2. Load local animated image
+### 2. 加载本地动图
 
 ```swift
 import SwiftUI
@@ -62,7 +62,7 @@ struct LocalDemoView: View {
 }
 ```
 
-### 3. Custom progress overlay
+### 3. 自定义加载进度视图
 
 ```swift
 DZAnimatedImageView(
@@ -80,7 +80,7 @@ DZAnimatedImageView(
 .frame(width: 220, height: 220)
 ```
 
-### 4. Loop / finish callbacks (SwiftUI)
+### 4. 循环/结束回调（SwiftUI）
 
 ```swift
 struct PlaylistView: View {
@@ -103,7 +103,7 @@ struct PlaylistView: View {
 }
 ```
 
-### 5. Observe decoded buffer memory (SwiftUI)
+### 5. 监听已解码缓冲内存（SwiftUI）
 
 ```swift
 @State private var decodedBytes = 0
@@ -119,14 +119,14 @@ DZAnimatedImageView(
 
 ## UIKit
 
-Import package:
+导入库：
 
 ```swift
 import UIKit
 import DZAnimatedImageKit
 ```
 
-### 1. Create and add `DZAnimatedImageUIView`
+### 1. 创建并添加 `DZAnimatedImageUIView`
 
 ```swift
 final class DemoViewController: UIViewController {
@@ -145,7 +145,7 @@ final class DemoViewController: UIViewController {
 }
 ```
 
-### 2. Load local animated image
+### 2. 加载本地动图
 
 ```swift
 if let path = Bundle.main.path(forResource: "sample", ofType: "gif") {
@@ -153,7 +153,7 @@ if let path = Bundle.main.path(forResource: "sample", ofType: "gif") {
 }
 ```
 
-### 3. Delegate callbacks
+### 3. 代理回调
 
 ```swift
 final class DemoViewController: UIViewController, DZAnimatedImageUIViewDelegate {
@@ -174,7 +174,7 @@ final class DemoViewController: UIViewController, DZAnimatedImageUIViewDelegate 
 }
 ```
 
-### 4. Stop/reset
+### 4. 停止/重置
 
 ```swift
 animatedView.stopAnimating()
@@ -183,19 +183,19 @@ animatedView.reset()
 
 ---
 
-## Notes
+## 说明
 
-- `AnimatedImage(url:)` for remote resources.
-- `AnimatedImage(path:)` for local file path.
-- SwiftUI callbacks:
-  - `onLoop`: called after each completed animation loop.
-  - `onFinished`: called when playback reaches the end in `.once` or `.finite(n)`.
-  - `.infinite` never triggers `onFinished`.
-  - `onDecodedBufferChanged`: reports decoded frame-buffer bytes used by the animator.
-- `repeatMode` supports:
+- `AnimatedImage(url:)`：加载远程资源。
+- `AnimatedImage(path:)`：加载本地文件路径。
+- SwiftUI 回调：
+  - `onLoop`：每次动画循环完成后触发。
+  - `onFinished`：在 `.once` 或 `.finite(n)` 播放完成后触发。
+  - `.infinite` 不会触发 `onFinished`。
+  - `onDecodedBufferChanged`：回调当前动画器已解码缓冲帧的内存字节数。
+- `repeatMode` 支持：
   - `.once`
   - `.finite(n)`
   - `.infinite`
-- `preloadCount` controls how many frames are prepared ahead.
-- The effective preload window is capped internally:
+- `preloadCount` 用于控制预加载帧数量。
+- 实际预加载窗口会受内部上限保护：
   - `effectivePreload = min(preloadCount, maxPreloadCap, frameCount - 1)`
