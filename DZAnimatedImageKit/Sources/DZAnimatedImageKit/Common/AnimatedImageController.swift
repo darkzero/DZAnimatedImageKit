@@ -14,6 +14,7 @@ final class AnimatedImageController: ObservableObject {
     @Published private(set) var currentCg: CGImage?
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var progress: Float = 0.0
+    @Published private(set) var decodedBufferBytes: Int = 0
 
     private var animator: Animator?
     private var loadTask: Task<Void, Never>?
@@ -25,13 +26,15 @@ extension AnimatedImageController {
                repeatMode: RepeatMode = .infinite,
                preloadCount: Int = 6,
                screenScale: CGFloat,
-               onLoop: (@MainActor @Sendable (_ count: Int) -> Void)? = nil) {
+               onLoop: (@MainActor @Sendable (_ count: Int) -> Void)? = nil,
+               onDecodedBuffer: (@MainActor @Sendable (_ bytes: Int) -> Void)? = nil) {
         guard size.width > 0, size.height > 0 else { return }
 
         stop()
         currentCg = nil
         isLoading = true
         progress = 0.0
+        decodedBufferBytes = 0
 
         loadTask = Task { [weak self] in
             guard let self else { return }
@@ -59,6 +62,10 @@ extension AnimatedImageController {
                     },
                     onLoop: { count in
                         onLoop?(count)
+                    },
+                    onBuffer: { [weak self] bytes in
+                        self?.decodedBufferBytes = bytes
+                        onDecodedBuffer?(bytes)
                     }
                 )
             } catch {
@@ -72,6 +79,7 @@ extension AnimatedImageController {
     func stop() {
         loadTask?.cancel()
         loadTask = nil
+        decodedBufferBytes = 0
 
         Task { [weak self] in
             guard let self else { return }

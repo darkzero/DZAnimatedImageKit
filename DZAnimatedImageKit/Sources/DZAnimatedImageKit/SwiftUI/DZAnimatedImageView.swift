@@ -22,6 +22,7 @@ public struct DZAnimatedImageView: View {
     private let preloadCount: Int
     private let onLoop: (@MainActor (Int) -> Void)?
     private let onFinished: (@MainActor () -> Void)?
+    private let onDecodedBufferChanged: (@MainActor (Int) -> Void)?
 
     private let progressBuilder: @MainActor (DZProgressState, CGSize) -> AnyView
 
@@ -34,6 +35,7 @@ public struct DZAnimatedImageView: View {
                 preloadCount: Int = 6,
                 onLoop: (@MainActor (Int) -> Void)? = nil,
                 onFinished: (@MainActor () -> Void)? = nil,
+                onDecodedBufferChanged: (@MainActor (Int) -> Void)? = nil,
                 @ViewBuilder progressOverlay: @escaping @MainActor (_ state: DZProgressState, _ size: CGSize) -> some View = DZAnimatedImageView.circularProgressOverlay) {
         self.animatedImage = animatedImage
         self.repeatMode = repeatMode
@@ -41,6 +43,7 @@ public struct DZAnimatedImageView: View {
         self.placeholder = placeHolder
         self.onLoop = onLoop
         self.onFinished = onFinished
+        self.onDecodedBufferChanged = onDecodedBufferChanged
         self.progressBuilder = { state, size in
             AnyView(progressOverlay(state, size))
         }
@@ -95,11 +98,15 @@ public struct DZAnimatedImageView: View {
                                 onFinished?()
                             }
                         }
+                    },
+                                     onDecodedBuffer: { bytes in
+                        onDecodedBufferChanged?(bytes)
                     })
                 }
             }
             .onDisappear {
                 controller.stop()
+                onDecodedBufferChanged?(0)
                 didStart = false
             }
         }

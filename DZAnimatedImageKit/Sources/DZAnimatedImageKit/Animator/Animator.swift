@@ -29,7 +29,7 @@ actor Animator {
     private let loopCountFromMeta: Int
     // Total duration of one animation loop
     private(set) var loopDuration: TimeInterval = 0
-    private let maxFrameCount: Int
+    private let maxPreloadCap: Int
     private var timeSinceLastFrameChange: TimeInterval = 0.0
 
     // playback states (actor-isolated)
@@ -69,7 +69,14 @@ actor Animator {
     }
 
     var preloadingIsNeeded: Bool {
-        return (preloadCount > 0 && preloadCount < frameCount - 1)
+        return effectivePreloadCount > 0
+    }
+
+    /// Effective preload window.
+    /// Uses `preloadCount` as the desired value and `maxPreloadCap` as a hard safety cap.
+    private var effectivePreloadCount: Int {
+        guard frameCount > 1 else { return 0 }
+        return min(preloadCount, maxPreloadCap, frameCount - 1)
     }
 
     // Current active frame image
@@ -100,13 +107,14 @@ actor Animator {
         self.repeatMode = repeatMode
         self.frameCount = CGImageSourceGetCount(sourceBox.raw)
         self.loopCountFromMeta = Animator.readLoopCount(from: sourceBox.raw) ?? 0
-        self.maxFrameCount = 10
+        self.maxPreloadCap = 10
         self.screenScale = screenScale
     }
 
     // MARK: - public API
     func start(onFrame: @escaping @MainActor @Sendable (_ image: CGImage, _ duration: TimeInterval) -> Void,
-               onLoop: @escaping @MainActor @Sendable (_ count: Int) -> Void) {
+               onLoop: @escaping @MainActor @Sendable (_ count: Int) -> Void,
+               onBuffer: @escaping @MainActor @Sendable (_ bytes: Int) -> Void = { _ in }) {
         guard playingTask == nil, frameCount > 0 else {
             return
         }
@@ -122,6 +130,8 @@ actor Animator {
                     continue
                 }
                 await onFrame(cg, dur)
+                let decodedBytes = await self.decodedFrameBufferBytes()
+                await onBuffer(decodedBytes)
                 try? await Task.sleep(nanoseconds: UInt64(max(dur, 0.01) * 1_000_000_000))
                 await self.advanceFrameIndexAndLoopIfNeeded(onLoop: onLoop)
             }
@@ -215,6 +225,15 @@ actor Animator {
         return cg
     }
 
+    private func decodedFrameBufferBytes() -> Int {
+        var total = 0
+        for frame in animatedFrames {
+            guard let image = frame.image else { continue }
+            total += image.bytesPerRow * image.height
+        }
+        return total
+    }
+
     private func advanceFrameIndex() {
         currentFrameIndex = increment(frameIndex: currentFrameIndex)
     }
@@ -292,11 +311,12 @@ actor Animator {
     }
 
     private func trimCacheIfNeeded(keepingAround index: Int) {
-        guard preloadCount > 0 else { return }
+        let effective = effectivePreloadCount
+        guard effective > 0 else { return }
         // Keep a small sliding window around current frame
         let keep = Set(([index] +
-                        (1...preloadCount).map { (index + $0) % frameCount } +
-                        (1...preloadCount).map { (index - $0 + frameCount) % frameCount }))
+                        (1...effective).map { (index + $0) % frameCount } +
+                        (1...effective).map { (index - $0 + frameCount) % frameCount }))
         frameCache.keys.filter { !keep.contains($0) }.forEach { frameCache.removeValue(forKey: $0) }
     }
 
@@ -344,8 +364,11 @@ actor Animator {
     }
 
     private func preloadIndexes(start index: Int) -> [Int] {
+        let effective = effectivePreloadCount
+        guard effective > 0 else { return [] }
+
         let nextIndex = increment(frameIndex: index)
-        let lastIndex = increment(frameIndex: index, by: maxFrameCount)
+        let lastIndex = increment(frameIndex: index, by: effective)
 
         if lastIndex >= nextIndex {
             return [Int](nextIndex...lastIndex)

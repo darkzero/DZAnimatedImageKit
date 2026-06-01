@@ -98,6 +98,20 @@ struct PlaylistView: View {
 }
 ```
 
+### 5. デコード済みバッファメモリを監視（SwiftUI）
+
+```swift
+@State private var decodedBytes = 0
+
+DZAnimatedImageView(
+    animatedImage: AnimatedImage(url: URL(string: "https://example.com/demo.gif")!),
+    preloadCount: 6,
+    onDecodedBufferChanged: { bytes in
+        decodedBytes = bytes
+    }
+)
+```
+
 ## UIKit
 
 インポート：
