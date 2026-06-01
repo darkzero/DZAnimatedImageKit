@@ -7,28 +7,26 @@
 - iOS 15+
 - Swift 6.1+
 
-## 安装（Swift Package Manager）
+## 安装
+
+通过 Swift Package Manager 添加 `DZAnimatedImageKit`。
 
 在 Xcode 中：
 
 1. `File` -> `Add Package Dependencies...`
-2. 选择你的仓库地址
+2. 选择仓库地址或本地包路径
 3. 添加产品：`DZAnimatedImageKit`
-
----
-
-# How to use
 
 ## SwiftUI
 
-导入库：
+导入：
 
 ```swift
 import SwiftUI
 import DZAnimatedImageKit
 ```
 
-### 1. 加载远程动图
+### 加载远程动图
 
 ```swift
 struct DemoView: View {
@@ -44,12 +42,9 @@ struct DemoView: View {
 }
 ```
 
-### 2. 加载本地动图
+### 加载本地动图
 
 ```swift
-import SwiftUI
-import DZAnimatedImageKit
-
 struct LocalDemoView: View {
     var body: some View {
         DZAnimatedImageView(
@@ -62,7 +57,7 @@ struct LocalDemoView: View {
 }
 ```
 
-### 3. 自定义加载进度视图
+### 自定义进度视图
 
 ```swift
 DZAnimatedImageView(
@@ -80,7 +75,7 @@ DZAnimatedImageView(
 .frame(width: 220, height: 220)
 ```
 
-### 4. 循环/结束回调（SwiftUI）
+### 循环和结束回调
 
 ```swift
 struct PlaylistView: View {
@@ -105,14 +100,14 @@ struct PlaylistView: View {
 
 ## UIKit
 
-导入库：
+导入：
 
 ```swift
 import UIKit
 import DZAnimatedImageKit
 ```
 
-### 1. 创建并添加 `DZAnimatedImageUIView`
+### 创建并添加 `DZAnimatedImageUIView`
 
 ```swift
 final class DemoViewController: UIViewController {
@@ -131,7 +126,7 @@ final class DemoViewController: UIViewController {
 }
 ```
 
-### 2. 加载本地动图
+### 加载本地动图
 
 ```swift
 if let path = Bundle.main.path(forResource: "sample", ofType: "gif") {
@@ -139,7 +134,7 @@ if let path = Bundle.main.path(forResource: "sample", ofType: "gif") {
 }
 ```
 
-### 3. 代理回调
+### 代理回调
 
 ```swift
 final class DemoViewController: UIViewController, DZAnimatedImageUIViewDelegate {
@@ -160,25 +155,31 @@ final class DemoViewController: UIViewController, DZAnimatedImageUIViewDelegate 
 }
 ```
 
-### 4. 停止/重置
+### 停止和重置
 
 ```swift
 animatedView.stopAnimating()
 animatedView.reset()
 ```
 
----
-
 ## 说明
 
-- `AnimatedImage(url:)`：加载远程资源。
-- `AnimatedImage(path:)`：加载本地文件路径。
+- `AnimatedImage(url:)`：加载远程资源
+- `AnimatedImage(path:)`：加载本地文件路径
 - SwiftUI 回调：
-  - `onLoop`：每次动画循环完成后触发。
-  - `onFinished`：在 `.once` 或 `.finite(n)` 播放完成后触发。
-  - `.infinite` 不会触发 `onFinished`。
+  - `onLoop`：每次动画循环完成后触发
+  - `onFinished`：在 `.once` 或 `.finite(n)` 播放完成后触发
+  - `.infinite` 不会触发 `onFinished`
 - `repeatMode` 支持：
   - `.once`
   - `.finite(n)`
   - `.infinite`
-- `preloadCount` 用于控制预加载帧数量。
+- `preloadCount` 用于控制预加载帧数量
+
+## 手工测试
+
+如果你在这个仓库里开发，建议直接使用：
+
+- [`../ManualTestApp/ManualTestApp.xcodeproj`](../ManualTestApp/ManualTestApp.xcodeproj)
+
+这个测试 App 已经通过本地 Swift Package Manager 连接到当前包，方便快速验证修改效果。

@@ -1,34 +1,32 @@
 # DZAnimatedImageKit
 
-Animated image view library for iOS (`GIF/APNG`), with both SwiftUI and UIKit APIs.
+Animated image view library for iOS (`GIF/APNG`) with both SwiftUI and UIKit APIs.
 
 ## Requirements
 
 - iOS 15+
 - Swift 6.1+
 
-## Installation (Swift Package Manager)
+## Installation
+
+Add `DZAnimatedImageKit` through Swift Package Manager.
 
 In Xcode:
 
 1. `File` -> `Add Package Dependencies...`
-2. Select your repository URL
+2. Select your repository URL or local package path
 3. Add product: `DZAnimatedImageKit`
-
----
-
-# How to use
 
 ## SwiftUI
 
-Import package:
+Import the package:
 
 ```swift
 import SwiftUI
 import DZAnimatedImageKit
 ```
 
-### 1. Load remote animated image
+### Load a remote animated image
 
 ```swift
 struct DemoView: View {
@@ -44,12 +42,9 @@ struct DemoView: View {
 }
 ```
 
-### 2. Load local animated image
+### Load a local animated image
 
 ```swift
-import SwiftUI
-import DZAnimatedImageKit
-
 struct LocalDemoView: View {
     var body: some View {
         DZAnimatedImageView(
@@ -62,7 +57,7 @@ struct LocalDemoView: View {
 }
 ```
 
-### 3. Custom progress overlay
+### Customize the progress overlay
 
 ```swift
 DZAnimatedImageView(
@@ -80,7 +75,7 @@ DZAnimatedImageView(
 .frame(width: 220, height: 220)
 ```
 
-### 4. Loop / finish callbacks (SwiftUI)
+### Loop and finish callbacks
 
 ```swift
 struct PlaylistView: View {
@@ -105,14 +100,14 @@ struct PlaylistView: View {
 
 ## UIKit
 
-Import package:
+Import the package:
 
 ```swift
 import UIKit
 import DZAnimatedImageKit
 ```
 
-### 1. Create and add `DZAnimatedImageUIView`
+### Create and add `DZAnimatedImageUIView`
 
 ```swift
 final class DemoViewController: UIViewController {
@@ -131,7 +126,7 @@ final class DemoViewController: UIViewController {
 }
 ```
 
-### 2. Load local animated image
+### Load a local animated image
 
 ```swift
 if let path = Bundle.main.path(forResource: "sample", ofType: "gif") {
@@ -139,7 +134,7 @@ if let path = Bundle.main.path(forResource: "sample", ofType: "gif") {
 }
 ```
 
-### 3. Delegate callbacks
+### Delegate callbacks
 
 ```swift
 final class DemoViewController: UIViewController, DZAnimatedImageUIViewDelegate {
@@ -160,25 +155,31 @@ final class DemoViewController: UIViewController, DZAnimatedImageUIViewDelegate 
 }
 ```
 
-### 4. Stop/reset
+### Stop and reset
 
 ```swift
 animatedView.stopAnimating()
 animatedView.reset()
 ```
 
----
-
 ## Notes
 
-- `AnimatedImage(url:)` for remote resources.
-- `AnimatedImage(path:)` for local file path.
+- `AnimatedImage(url:)` loads remote resources
+- `AnimatedImage(path:)` loads a local file path
 - SwiftUI callbacks:
-  - `onLoop`: called after each completed animation loop.
-  - `onFinished`: called when playback reaches the end in `.once` or `.finite(n)`.
-  - `.infinite` never triggers `onFinished`.
+  - `onLoop`: called after each completed animation loop
+  - `onFinished`: called when playback reaches the end in `.once` or `.finite(n)`
+  - `.infinite` does not trigger `onFinished`
 - `repeatMode` supports:
   - `.once`
   - `.finite(n)`
   - `.infinite`
-- `preloadCount` controls how many frames are prepared ahead.
+- `preloadCount` controls how many frames are prepared ahead
+
+## Manual Testing
+
+If you are working inside this repository, use:
+
+- [`../ManualTestApp/ManualTestApp.xcodeproj`](../ManualTestApp/ManualTestApp.xcodeproj)
+
+That app is connected to this package through local Swift Package Manager for quick verification.
