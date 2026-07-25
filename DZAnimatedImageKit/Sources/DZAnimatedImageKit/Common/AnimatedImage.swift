@@ -8,7 +8,7 @@
 import ImageIO
 import Foundation
 
-public struct AnimatedImage {
+public struct AnimatedImage: Equatable {
     public enum SourceType: Sendable {
         case remote(URL)
         case local(URL)

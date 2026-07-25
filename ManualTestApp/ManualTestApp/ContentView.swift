@@ -70,6 +70,36 @@ private struct SampleMetrics {
     let estimatedMemoryBytes: Int
 }
 
+private enum RemoteQuickURL: String, CaseIterable, Identifiable {
+    case validGIF
+    case invalidJSON
+    case invalid404
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .validGIF:
+            return "Valid GIF"
+        case .invalidJSON:
+            return "Invalid JSON"
+        case .invalid404:
+            return "Invalid 404"
+        }
+    }
+
+    var urlString: String {
+        switch self {
+        case .validGIF:
+            return "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExdHhtOHVqMWptNHU0Z3l5NXQ2ajNub2VlNHJ4cG5xa2UydnZmbTEwZyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/PMcyzEALWVUS2IAcjC/giphy.gif"
+        case .invalidJSON:
+            return "https://httpbin.org/json"
+        case .invalid404:
+            return "https://httpbin.org/status/404"
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var sampleStore: SampleAnimatedImageStore
 
@@ -86,6 +116,15 @@ struct ContentView: View {
     @State private var isLoadingMetrics = false
     @State private var metricsError: String?
     @State private var decodedBufferBytes = 0
+    @State private var enableMultiInstanceRemoteTest = false
+    @State private var showRemoteInstanceA = true
+    @State private var showRemoteInstanceB = true
+    @State private var remoteLoopCountA = 0
+    @State private var remoteLoopCountB = 0
+    @State private var remoteFinishedA = false
+    @State private var remoteFinishedB = false
+    @State private var remoteDecodedBytesA = 0
+    @State private var remoteDecodedBytesB = 0
 
     private var repeatMode: RepeatMode {
         selection.makeRepeatMode(finiteCount: finiteCount)
@@ -99,6 +138,7 @@ struct ContentView: View {
                     remoteSection
                     sampleDisplaySection
                     swiftUIEventsSection
+                    remoteSemanticsSection
                 }
                 .navigationTitle("SwiftUI Manual Test")
             }
@@ -124,6 +164,7 @@ struct ContentView: View {
             metrics = nil
             metricsError = nil
             decodedBufferBytes = 0
+            resetRemoteSemanticsState()
         }
     }
 
@@ -165,12 +206,23 @@ struct ContentView: View {
                     .autocorrectionDisabled()
                     .font(.footnote.monospaced())
 
-                Button("Reload Remote Sample") {
-                    remoteReloadToken = UUID()
-                    resetSwiftUIEvents()
-                    metrics = nil
-                    metricsError = nil
-                    decodedBufferBytes = 0
+                Text("Quick Cases")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(RemoteQuickURL.allCases) { preset in
+                            Button(preset.title) {
+                                applyRemotePreset(preset)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+
+                Button("Reload / Cancel Current") {
+                    reloadCurrentRemoteSample()
                 }
             }
         }
@@ -198,6 +250,72 @@ struct ContentView: View {
             metricRow(title: "Finished", value: swiftUIFinished ? "Yes" : "No")
             Button("Reset Counters") {
                 resetSwiftUIEvents()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var remoteSemanticsSection: some View {
+        if sampleSelection == .remoteURL, let url = validRemoteURL {
+            Section("Downloader Semantics Test") {
+                Toggle("Enable Same-URL Multi-Instance Test", isOn: $enableMultiInstanceRemoteTest)
+                    .onChange(of: enableMultiInstanceRemoteTest) { enabled in
+                        if !enabled {
+                            showRemoteInstanceA = true
+                            showRemoteInstanceB = true
+                            resetRemoteInstanceCounters()
+                        }
+                    }
+
+                if enableMultiInstanceRemoteTest {
+                    Text("Use the two toggles below to remove one instance while keeping the other alive. Expected behavior: hiding A should not interrupt B.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Show Instance A", isOn: $showRemoteInstanceA)
+                    Toggle("Show Instance B", isOn: $showRemoteInstanceB)
+
+                    if showRemoteInstanceA {
+                        remoteInstanceCard(
+                            title: "Remote Instance A",
+                            url: url,
+                            instanceID: "a",
+                            onLoop: { count in
+                                remoteLoopCountA = count
+                                remoteFinishedA = false
+                            },
+                            onFinished: {
+                                remoteFinishedA = true
+                            },
+                            onDecodedBufferChanged: { bytes in
+                                remoteDecodedBytesA = bytes
+                            }
+                        )
+                    }
+
+                    if showRemoteInstanceB {
+                        remoteInstanceCard(
+                            title: "Remote Instance B",
+                            url: url,
+                            instanceID: "b",
+                            onLoop: { count in
+                                remoteLoopCountB = count
+                                remoteFinishedB = false
+                            },
+                            onFinished: {
+                                remoteFinishedB = true
+                            },
+                            onDecodedBufferChanged: { bytes in
+                                remoteDecodedBytesB = bytes
+                            }
+                        )
+                    }
+
+                    metricRow(title: "A Loop / Finished", value: "\(remoteLoopCountA) / \(remoteFinishedA ? "Yes" : "No")")
+                    metricRow(title: "B Loop / Finished", value: "\(remoteLoopCountB) / \(remoteFinishedB ? "Yes" : "No")")
+                    metricRow(title: "A Decoded Buffer", value: formatBytes(remoteDecodedBytesA))
+                    metricRow(title: "B Decoded Buffer", value: formatBytes(remoteDecodedBytesB))
+                }
             }
         }
     }
@@ -346,6 +464,73 @@ struct ContentView: View {
             pixelHeight: height,
             estimatedMemoryBytes: estimatedMemoryBytes
         )
+    }
+
+    private func remoteInstanceCard(
+        title: String,
+        url: URL,
+        instanceID: String,
+        onLoop: @escaping (Int) -> Void,
+        onFinished: @escaping () -> Void,
+        onDecodedBufferChanged: @escaping (Int) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+
+            DZAnimatedImageView(
+                animatedImage: AnimatedImage(url: url),
+                placeHolder: .systemImage("photo", .gray),
+                repeatMode: repeatMode,
+                preloadCount: preloadCount,
+                onLoop: onLoop,
+                onFinished: onFinished,
+                onDecodedBufferChanged: onDecodedBufferChanged
+            )
+            .id([
+                "remote-instance",
+                instanceID,
+                remoteReloadToken.uuidString,
+                url.absoluteString,
+                String(describing: repeatMode),
+                "\(preloadCount)"
+            ].joined(separator: "-"))
+            .frame(maxWidth: .infinity)
+            .frame(height: 170)
+            .background(Color.black.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func applyRemotePreset(_ preset: RemoteQuickURL) {
+        remoteURLString = preset.urlString
+        reloadCurrentRemoteSample()
+    }
+
+    private func reloadCurrentRemoteSample() {
+        remoteReloadToken = UUID()
+        resetSwiftUIEvents()
+        metrics = nil
+        metricsError = nil
+        decodedBufferBytes = 0
+        resetRemoteInstanceCounters()
+    }
+
+    private func resetRemoteInstanceCounters() {
+        remoteLoopCountA = 0
+        remoteLoopCountB = 0
+        remoteFinishedA = false
+        remoteFinishedB = false
+        remoteDecodedBytesA = 0
+        remoteDecodedBytesB = 0
+    }
+
+    private func resetRemoteSemanticsState() {
+        enableMultiInstanceRemoteTest = false
+        showRemoteInstanceA = true
+        showRemoteInstanceB = true
+        resetRemoteInstanceCounters()
     }
 
     private func resetSwiftUIEvents() {

@@ -78,6 +78,36 @@ struct DZAnimatedImageKitTests {
 
         #expect(abs(duration - 0.2) < 0.001)
     }
+
+    @Test("download result successFile is converted to image source")
+    func downloadResultSuccessFile() throws {
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dz-animated-imagekit-source-file-\(UUID().uuidString).png")
+        try makePNGData().write(to: tmpURL)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        let box = try SourceDownloader.makeImageSourceBox(from: .successFile(tmpURL))
+        #expect(CGImageSourceGetCount(box.raw) == 1)
+    }
+
+    @Test("download result successFile throws for invalid image file")
+    func downloadResultInvalidFileThrows() throws {
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dz-animated-imagekit-invalid-\(UUID().uuidString).bin")
+        try Data("not-an-image".utf8).write(to: tmpURL)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        #expect(throws: URLError.self) {
+            _ = try SourceDownloader.makeImageSourceBox(from: .successFile(tmpURL))
+        }
+    }
+
+    @Test("download result failure is rethrown")
+    func downloadResultFailureRethrow() {
+        #expect(throws: URLError.self) {
+            _ = try SourceDownloader.makeImageSourceBox(from: .failure(URLError(.timedOut)))
+        }
+    }
 }
 
 private extension DZAnimatedImageKitTests {

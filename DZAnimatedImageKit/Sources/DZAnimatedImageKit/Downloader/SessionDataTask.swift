@@ -109,29 +109,21 @@ extension SessionDataTask {
                 return
             }
             guard let url = URL(string: urlString) else {
-                notifyComplete(.failure(URLError(.badURL)))
+                notifyCompleteLocked(.failure(URLError(.badURL)))
                 return
             }
             
             let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-            let session = URLSession(configuration: .default)
             
-            let task = session.dataTask(with: request) { [weak self] data, _, error in
-                guard let self else { return }
-                if let error = error {
-                    notifyComplete(.failure(error))
-                    return
-                }
-                guard let data = data, let src = CGImageSourceCreateWithData(data as CFData, nil) else {
-                    notifyComplete(.failure(URLError(.cannotDecodeContentData)))
-                    return
-                }
-                notifyComplete(.successData(src))
+            let task = urlSession.dataTask(with: request) { [weak self] data, _, error in
+                self?.handleDataTaskCompletion(data: data, error: error)
             }
             
             // 👇 这里用 task.progress 来监听进度
             observation = task.progress.observe(\.fractionCompleted) { [weak self] prog, _ in
-                self?.notifyProgress(Float(prog.fractionCompleted))
+                self?.q.async {
+                    self?.notifyProgressLocked(Float(prog.fractionCompleted))
+                }
             }
             downloadTask = task
             isRunning = true
@@ -185,18 +177,47 @@ extension SessionDataTask {
             downloadTask?.cancel()
             downloadTask = nil
             resumeData = nil
+            observation = nil
         }
     }
     
-    // MARK: - Callback broadcast
-    private func notifyProgress(_ p: Float) {
+    private func handleDataTaskCompletion(data: Data?, error: Error?) {
+        q.async {
+            self.isRunning = false
+            self.downloadTask = nil
+            self.observation = nil
+
+            if let err = error as NSError? {
+                if err.domain == NSURLErrorDomain && err.code == NSURLErrorCancelled {
+                    self.notifyCompleteLocked(.failure(URLError(.cancelled)))
+                    return
+                }
+                self.notifyCompleteLocked(.failure(err))
+                return
+            }
+
+            guard let data else {
+                self.notifyCompleteLocked(.failure(URLError(.badServerResponse)))
+                return
+            }
+
+            guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
+                self.notifyCompleteLocked(.failure(URLError(.cannotDecodeContentData)))
+                return
+            }
+
+            self.notifyCompleteLocked(.successData(src))
+        }
+    }
+
+    // MARK: - Callback broadcast (must be called on `q`)
+    private func notifyProgressLocked(_ p: Float) {
         let arr = callbacks.values
         arr.forEach { $0.onProgress?(p) }
     }
-    
-    private func notifyComplete(_ result: DownloadResult) {
+
+    private func notifyCompleteLocked(_ result: DownloadResult) {
         let arr = callbacks.values
-        // 完成后将所有 callback 移除，避免重复调用
         callbacks.removeAll(keepingCapacity: false)
         arr.forEach { $0.onCompleted?(result) }
     }
@@ -215,22 +236,22 @@ extension SessionDataTask {
                     // 此处不当做失败，不触发 completion；交由 UI 进入 .paused 状态
                     return
                 } else {
-                    notifyComplete(.failure(err))
+                    notifyCompleteLocked(.failure(err))
                     return
                 }
             }
 
             guard let tmp = tmpURL else {
-                notifyComplete(.failure(URLError(.unknown)))
+                notifyCompleteLocked(.failure(URLError(.unknown)))
                 return
             }
 
             do {
                 let data = try Data(contentsOf: tmp)
                 CGImageSourceUpdateData(incrementalImgSrc, data as CFData, true)
-                notifyComplete(.successData(incrementalImgSrc))
+                notifyCompleteLocked(.successData(incrementalImgSrc))
             } catch {
-                notifyComplete(.failure(error))
+                notifyCompleteLocked(.failure(error))
             }
         }
     }

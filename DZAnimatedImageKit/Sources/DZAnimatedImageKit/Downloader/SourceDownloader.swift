@@ -28,6 +28,33 @@ actor SourceDownloader {
 }
 
 extension SourceDownloader {
+    /// Validate source can actually decode at least one frame.
+    /// Some invalid data can still create a non-nil `CGImageSource`, so we verify first-frame decode.
+    private static func validatedImageSourceBox(_ source: CGImageSource) throws -> ImageSourceBox {
+        guard CGImageSourceGetCount(source) > 0,
+              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return ImageSourceBox(raw: source)
+    }
+
+    /// Normalize all download outputs into `ImageSourceBox`.
+    /// This keeps `downloadImageAsync` semantics consistent for `.successData` and `.successFile`.
+    internal static func makeImageSourceBox(from result: DownloadResult) throws -> ImageSourceBox {
+        switch result {
+        case .successData(let source):
+            return try validatedImageSourceBox(source)
+        case .successFile(let fileURL):
+            let data = try Data(contentsOf: fileURL)
+            guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            return try validatedImageSourceBox(src)
+        case .failure(let error):
+            throw error
+        }
+    }
+
     internal func downloadImage(from url: String,
                                 completion: @escaping ((DownloadResult) -> Void),
                                 progress: ((Float) -> Void)? = nil) -> SessionDataTask.CancelToken {
@@ -60,18 +87,13 @@ extension SourceDownloader {
         var cancelToken: SessionDataTask.CancelToken = -1
         let stream = AsyncThrowingStream<DownloadEvent, Error>(bufferingPolicy: .bufferingNewest(32)) { continuation in
             let token = self.downloadImage(from: url) { result in
-                switch result {
-                case .successData(let source):              // 这里按你的真实 DownloadResult 改
-                    let box = ImageSourceBox(raw: source)
+                do {
+                    let box = try Self.makeImageSourceBox(from: result)
                     _ = continuation.yield(.progress(1.0))
                     _ = continuation.yield(.completed(box))
                     continuation.finish()
-                case .successFile(let url):
-                    // TODO:
-                    break
-                case .failure: //(let error):
-                    //continuation.finish(throwing: error)
-                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
                 }
             } progress: { p in
                 _ = continuation.yield(.progress(p))
